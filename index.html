@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>D-WOLF 週次オペレーションボード</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Noto Sans JP','Hiragino Kaku Gothic ProN','Yu Gothic Medium',sans-serif; background: #F2F3F1; color: #17242F; }
+    
+    .container { min-height: 100vh; display: flex; flex-direction: column; }
+    header { background: #17242F; color: #fff; padding: 10px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    header .logo { display: flex; align-items: baseline; gap: 8px; }
+    header .logo-main { font-weight: 900; font-size: 18px; letter-spacing: 2px; }
+    header .logo-sub { font-size: 10px; color: #9FB0BC; letter-spacing: 1px; }
+    header .week-nav { display: flex; align-items: center; gap: 6px; background: #22333F; border-radius: 6px; padding: 4px 8px; }
+    header .week-nav button { background: none; border: none; color: #fff; cursor: pointer; font-size: 15px; padding: 0 4px; }
+    header .week-nav .label { font-size: 13px; font-weight: 700; }
+    header .status { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    header .status-msg { font-size: 11px; color: #9FB0BC; }
+    header button { background: #22333F; border: 1px solid #33475466; color: #fff; border-radius: 5px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+    
+    nav { background: #fff; border-bottom: 1px solid #DCE0E3; display: flex; overflow-x: auto; }
+    nav button { background: none; border: none; border-bottom: 3px solid transparent; padding: 11px 16px; font-size: 13.5px; font-weight: 500; color: #3D4F5E; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    nav button.active { border-bottom-color: #E8590C; font-weight: 800; color: #17242F; }
+    nav button:hover { background: #FAFAF9; }
+    
+    main { flex: 1; max-width: 1080px; margin: 0 auto; width: 100%; padding: 14px 16px 60px; }
+    main > div { display: none; }
+    main > div.active { display: block; }
+    
+    .section-header { display: flex; align-items: center; gap: 8px; margin: 18px 0 10px; }
+    .section-num { background: #17242F; color: #fff; font-size: 11px; font-weight: 800; border-radius: 3px; padding: 2px 7px; letter-spacing: 1px; }
+    .section-title { font-size: 15px; font-weight: 800; color: #17242F; margin: 0; }
+    .section-right { margin-left: auto; }
+    
+    .card { background: #fff; border: 1px solid #DCE0E3; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+    .card-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .card-title { font-size: 14.5px; font-weight: 800; }
+    .chip { background: #18; border: 1px solid #44; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 700; white-space: nowrap; display: inline-block; }
+    
+    table { border-collapse: collapse; width: 100%; margin-bottom: 14px; background: #fff; border: 1px solid #DCE0E3; border-radius: 10px; overflow: hidden; }
+    th { background: #17242F; color: #fff; font-size: 12px; font-weight: 700; padding: 8px 10px; text-align: left; }
+    td { border-top: 1px solid #DCE0E3; border-left: 1px solid #DCE0E3; padding: 8px 10px; font-size: 13px; vertical-align: top; }
+    
+    input[type="text"], input[type="number"], textarea, select { width: 100%; box-sizing: border-box; border: 1px solid #DCE0E3; border-radius: 6px; padding: 7px 9px; font-size: 13px; font-family: inherit; background: #fff; color: #17242F; }
+    input[type="text"]:focus, input[type="number"]:focus, textarea:focus, select:focus { outline: none; border-color: #E8590C; }
+    
+    .btn { border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; border: none; }
+    .btn-primary { background: #E8590C; color: #fff; }
+    .btn-primary:hover { background: #d4760f; }
+    .btn-secondary { background: #fff; border: 1px solid #DCE0E3; color: #17242F; }
+    .btn-secondary:hover { background: #FAFAF9; }
+    .btn-small { padding: 2px 8px; font-size: 12px; }
+    .btn-danger { color: #B54747; }
+    
+    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+    .modal.show { display: flex; }
+    .modal-content { background: #fff; border-radius: 12px; padding: 18px; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; }
+    .modal-title { font-size: 16px; font-weight: 800; margin-bottom: 12px; }
+    .modal-grid { display: grid; gap: 10px; }
+    .modal-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    
+    .todo-item { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px solid #DCE0E3; }
+    .todo-item input[type="checkbox"] { cursor: pointer; }
+    .todo-item.done { text-decoration: line-through; color: #9AA4AC; }
+    
+    .busy-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+    
+    .alert { padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 12.5px; line-height: 1.7; }
+    .alert-info { background: #FFF0E6; border: 1px solid #E8590C33; color: #E8590C; }
+    .alert-warning { background: #FFF8E6; border: 1px solid #E5C56A; color: #7A5B00; }
+    
+    @media print {
+      body * { visibility: hidden !important; }
+      #printArea, #printArea * { visibility: visible !important; }
+      #printArea { position: absolute; left: 0; top: 0; width: 100%; background: #fff; }
+      @page { size: A4 portrait; margin: 12mm; }
+    }
+    
+    textarea { resize: vertical; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- ヘッダー -->
+    <header>
+      <div class="logo">
+        <span class="logo-main">D-WOLF</span>
+        <span class="logo-sub">WEEKLY OPS</span>
+      </div>
+      <div class="week-nav">
+        <button onclick="prevWeek()">‹</button>
+        <span class="label" id="weekLabel"></span>
+        <button onclick="nextWeek()">›</button>
+        <button onclick="todayWeek()">今週</button>
+      </div>
+      <div class="status">
+        <span class="status-msg" id="saveStatus"></span>
+        <button onclick="reload()">最新に更新</button>
+        <button onclick="logout()" id="userBtn"></button>
+      </div>
+    </header>
+
+    <!-- タブ -->
+    <nav>
+      <button class="tab-btn active" data-tab="board" onclick="switchTab('board')">週間ボード</button>
+      <button class="tab-btn" data-tab="cases" onclick="switchTab('cases')">案件管理</button>
+      <button class="tab-btn" data-tab="meeting" onclick="switchTab('meeting')">会議モード</button>
+      <button class="tab-btn" data-tab="report" onclick="switchTab('report')">社長報告</button>
+      <button class="tab-btn" data-tab="master" onclick="switchTab('master')">マスター管理</button>
+      <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">設定</button>
+    </nav>
+
+    <!-- メイン -->
+    <main>
+      <!-- メンバー選択 -->
+      <div id="loginScreen" style="display: flex; align-items: center; justify-content: center; min-height: 60vh; text-align: center;">
+        <div style="max-width: 420px;">
+          <div style="color: #E8590C; font-size: 12px; letter-spacing: 4px; font-weight: 800; margin-bottom: 6px;">SHIMIZUGUMI DRONE UNIT</div>
+          <h1 style="color: #17242F; font-size: 34px; font-weight: 900; margin: 0 0 4px; letter-spacing: 2px;">D-WOLF</h1>
+          <div style="color: #3D4F5E; font-size: 13px; margin-bottom: 28px;">週次オペレーションボード｜あなたの名前を選択</div>
+          <div id="memberButtons" style="display: grid; gap: 10px;"></div>
+        </div>
+      </div>
+
+      <!-- 週間ボード -->
+      <div data-section="board" class="active">
+        <div class="section-header">
+          <span class="section-num">01</span>
+          <h2 class="section-title">週間スケジュール(月〜金)</h2>
+        </div>
+        
+        <div class="alert alert-info">
+          <strong>Googleカレンダー取込</strong><br>
+          ①カレンダーのICS URLを設定タブで登録 → ②下の「ICSファイルを取込」でダウンロード&取込します
+          <input type="file" id="icsFile" accept=".ics,text/calendar" style="display:none" onchange="importICS(event)">
+          <button class="btn btn-secondary" style="margin-top:8px" onclick="document.getElementById('icsFile').click()">ICSファイルを取込</button>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table id="scheduleTable"></table>
+        </div>
+
+        <div class="section-header">
+          <span class="section-num">02</span>
+          <h2 class="section-title" id="todoTitle"></h2>
+        </div>
+        <div class="card">
+          <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+            <input type="text" id="todoInput" placeholder="TODOを入力してEnter" onkeydown="if(event.key==='Enter') addTodo()">
+            <button class="btn btn-primary" onclick="addTodo()">追加</button>
+          </div>
+          <div id="todoList"></div>
+        </div>
+      </div>
+
+      <!-- 案件管理 -->
+      <div data-section="cases">
+        <div class="section-header">
+          <span class="section-num">03</span>
+          <h2 class="section-title">案件管理</h2>
+          <div style="margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <select id="filterOwner" onchange="renderCases()" style="width: auto;">
+              <option>全員</option>
+            </select>
+            <label style="font-size: 12px; display: flex; align-items: center; gap: 4px;">
+              <input type="checkbox" id="showArchived" onchange="renderCases()"> 完了済も表示
+            </label>
+            <button class="btn btn-primary" onclick="editCase(null)">＋ 案件追加</button>
+          </div>
+        </div>
+        <div id="casesList"></div>
+      </div>
+
+      <!-- 会議モード -->
+      <div data-section="meeting">
+        <div class="section-header">
+          <span class="section-num">04</span>
+          <h2 class="section-title">会議モード</h2>
+        </div>
+        <div class="alert alert-info">各自の稼働・応援依頼をその場で更新できます。編集内容は自動保存されます。</div>
+        <div id="meetingList"></div>
+
+        <div class="section-header">
+          <span class="section-num">05</span>
+          <h2 class="section-title">会議メモ・決定事項</h2>
+        </div>
+        <div class="card">
+          <div style="margin-bottom: 10px;">
+            <label style="font-size: 12px; font-weight: 700; color: #3D4F5E;">会議メモ(議事)</label>
+            <textarea id="meetingNote" rows="4" placeholder="話し合った内容を記録" style="margin-top: 4px;" onchange="queueSave('week')"></textarea>
+          </div>
+          <div>
+            <label style="font-size: 12px; font-weight: 700; color: #3D4F5E;">決定事項</label>
+            <textarea id="decisions" rows="3" placeholder="決定した内容を記録" style="margin-top: 4px;" onchange="queueSave('week')"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- 社長報告 -->
+      <div data-section="report">
+        <div class="section-header">
+          <span class="section-num">06</span>
+          <h2 class="section-title">社長報告(A4・1枚)</h2>
+          <button class="btn btn-primary" style="margin-left: auto;" onclick="window.print()">印刷 / PDF保存</button>
+        </div>
+        <div style="font-size: 12.5px; color: #3D4F5E; margin-bottom: 12px;">
+          下のプレビューがそのまま印刷されます。修正は各タブで行ってください。
+        </div>
+        <div id="printArea"></div>
+      </div>
+
+      <!-- マスター管理 -->
+      <div data-section="master">
+        <div class="section-header">
+          <span class="section-num">07</span>
+          <h2 class="section-title">マスター管理</h2>
+        </div>
+        <div class="alert alert-warning">
+          ここでの変更は全メンバーの画面に即時反映されます。変更は管理責任者が行う運用を推奨します。
+        </div>
+        <div id="masterPanel"></div>
+      </div>
+
+      <!-- 設定 -->
+      <div data-section="settings">
+        <div class="section-header">
+          <span class="section-num">08</span>
+          <h2 class="section-title">GoogleカレンダーICS URL登録</h2>
+        </div>
+        <div class="card">
+          <ol style="padding-left: 20px; line-height: 1.9; color: #3D4F5E; font-size: 12.5px; margin-bottom: 14px;">
+            <li>PCのGoogleカレンダーで歯車 → 設定 → 「マイカレンダー」で自分のカレンダーを選択</li>
+            <li>「カレンダーの統合」内の「<strong>iCal形式の公開URL</strong>」をコピー</li>
+            <li>下の自分の欄に貼り付け(自動保存)</li>
+          </ol>
+          <div id="icsPanel" style="display: grid; gap: 10px;"></div>
+          <div style="margin-top: 12px; font-size: 12px; color: #B54747; line-height: 1.7;">
+            注意:このURLはメンバー全員に見える前提で登録してください。
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- モーダル -->
+  <div class="modal" id="caseModal">
+    <div class="modal-content">
+      <h3 class="modal-title" id="caseModalTitle"></h3>
+      <div class="modal-grid" id="caseFormGrid"></div>
+      <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
+        <button class="btn btn-secondary" onclick="closeCaseModal()">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveCase()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ========== グローバル状態 ==========
+    const DEFAULT_MASTER = {
+      members: ["岩上星音", "飯田匡輝", "妙見修志", "多々良鮎"],
+      manager: "多々良鮎",
+      categories: ["教習", "機体販売", "点検", "ICT", "新規分野"],
+      statuses: ["見積提出", "契約", "準備", "実施", "報告書作成", "完了"],
+      busyLevels: ["余裕あり", "普通", "逼迫"],
+      customFields: [],
+      mandayLimit: 5,
+    };
+
+    const DAYS = ["月", "火", "水", "木", "金"];
+    const CAT_PALETTE = ["#2B6CB0", "#6B46C1", "#2F855A", "#B7791F", "#C53030", "#0987A0", "#B83280", "#4A5568", "#975A16", "#276749"];
+    const BUSY_PALETTE = ["#2F855A", "#D69E2E", "#C53030", "#6B46C1", "#4A5568"];
+
+    let me = null;
+    let master = structuredClone(DEFAULT_MASTER);
+    let week = null;
+    let cases = [];
+    let settings = { icsUrls: {} };
+    let monday = getMonday(new Date());
+    let currentTab = "board";
+    let saveTimer = null;
+    let editingCase = null;
+
+    // ========== 初期化 ==========
+    async function init() {
+      master = { ...DEFAULT_MASTER, ...(await loadKey("dwolf-master") || {}) };
+      settings = await loadKey("dwolf-settings") || { icsUrls: {} };
+      cases = await loadKey("dwolf-cases") || [];
+      week = ensureWeek(await loadKey(`dwolf-week:${fmtKey(monday)}`), master.members);
+      renderMemberButtons();
+    }
+
+    function renderMemberButtons() {
+      const html = master.members.map((m) => `
+        <button class="btn btn-secondary" style="padding: 14px; font-size: 16px; justify-content: space-between; display: flex;" onclick="selectMember('${m}')">
+          <span>${m}</span>
+          ${m === master.manager ? `<span style="font-size: 10px; color: #E8590C; border: 1px solid #E8590C; border-radius: 3px; padding: 1px 6px;">管理責任者</span>` : ""}
+        </button>
+      `).join("");
+      document.getElementById("memberButtons").innerHTML = html;
+    }
+
+    function selectMember(name) {
+      me = name;
+      document.getElementById("loginScreen").style.display = "none";
+      document.getElementById("userBtn").textContent = `${me} ▾`;
+      renderBoard();
+      updateWeekLabel();
+    }
+
+    // ========== ストレージ ==========
+    async function loadKey(key) {
+      try {
+        const r = await window.storage?.get(key, true);
+        return r ? JSON.parse(r.value) : null;
+      } catch { return null; }
+    }
+
+    async function saveKey(key, obj) {
+      try {
+        await window.storage?.set(key, JSON.stringify(obj), true);
+        return true;
+      } catch { return false; }
+    }
+
+    function queueSave(kind) {
+      if (saveTimer) clearTimeout(saveTimer);
+      document.getElementById("saveStatus").textContent = "保存中…";
+      saveTimer = setTimeout(async () => {
+        let ok = true;
+        if (kind === "week") ok = await saveKey(`dwolf-week:${fmtKey(monday)}`, week);
+        if (kind === "cases") ok = await saveKey("dwolf-cases", cases);
+        if (kind === "settings") ok = await saveKey("dwolf-settings", settings);
+        if (kind === "master") ok = await saveKey("dwolf-master", master);
+        document.getElementById("saveStatus").textContent = ok ? "保存しました" : "保存失敗";
+        setTimeout(() => { document.getElementById("saveStatus").textContent = ""; }, 2000);
+      }, 700);
+    }
+
+    // ========== 日付 ==========
+    function getMonday(d) {
+      const x = new Date(d);
+      const day = (x.getDay() + 6) % 7;
+      x.setDate(x.getDate() - day);
+      x.setHours(0, 0, 0, 0);
+      return x;
+    }
+
+    const fmtKey = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    const fmtJP = (d) => `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+    const fmtShort = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+
+    function weekDates(m) {
+      return DAYS.map((_, i) => { const x = new Date(m); x.setDate(x.getDate() + i); return x; });
+    }
+
+    function prevWeek() { const d = new Date(monday); d.setDate(d.getDate() - 7); setMonday(d); }
+    function nextWeek() { const d = new Date(monday); d.setDate(d.getDate() + 7); setMonday(d); }
+    function todayWeek() { setMonday(getMonday(new Date())); }
+
+    async function setMonday(m) {
+      monday = m;
+      week = ensureWeek(await loadKey(`dwolf-week:${fmtKey(monday)}`), master.members);
+      updateWeekLabel();
+      renderBoard();
+    }
+
+    function updateWeekLabel() {
+      document.getElementById("weekLabel").textContent = `${fmtShort(monday)}(月)週`;
+    }
+
+    function ensureWeek(w, members) {
+      const base = w || {};
+      const out = {
+        schedule: { ...(base.schedule || {}) },
+        todos: { ...(base.todos || {}) },
+        busy: { ...(base.busy || {}) },
+        helpNeed: { ...(base.helpNeed || {}) },
+        helpGive: { ...(base.helpGive || {}) },
+        meetingNote: base.meetingNote || "",
+        decisions: base.decisions || "",
+      };
+      members.forEach((m) => {
+        if (!Array.isArray(out.schedule[m])) out.schedule[m] = ["", "", "", "", ""];
+        if (!Array.isArray(out.todos[m])) out.todos[m] = [];
+        if (out.busy[m] === undefined) out.busy[m] = "";
+        if (out.helpNeed[m] === undefined) out.helpNeed[m] = "";
+        if (out.helpGive[m] === undefined) out.helpGive[m] = "";
+      });
+      return out;
+    }
+
+    // ========== タブ切替 ==========
+    function switchTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+      document.querySelector(`[data-tab="${tab}"]`).classList.add("active");
+      document.querySelectorAll("main > div[data-section]").forEach((d) => d.classList.remove("active"));
+      document.querySelector(`[data-section="${tab}"]`).classList.add("active");
+
+      if (tab === "report") renderReport();
+      if (tab === "meeting") renderMeeting();
+      if (tab === "master") renderMaster();
+      if (tab === "settings") renderSettings();
+    }
+
+    // ========== 週間ボード ==========
+    function renderBoard() {
+      renderScheduleTable();
+      renderTodos();
+      document.getElementById("todoTitle").textContent = `今週のTODO(${me})`;
+    }
+
+    function renderScheduleTable() {
+      const dates = weekDates(monday);
+      let html = `<tr><th style="background: #17242F; color: #fff;">氏名</th>`;
+      DAYS.forEach((d, i) => {
+        html += `<th style="background: #17242F; color: #fff;">${d} ${fmtShort(dates[i])}</th>`;
+      });
+      html += `</tr>`;
+      master.members.forEach((m) => {
+        html += `<tr><td style="font-weight: 800; background: ${m === me ? "#FFF0E6" : "#FAFAF9"}; white-space: nowrap;">${m}</td>`;
+        DAYS.forEach((_, i) => {
+          const val = (week.schedule[m] || [])[i] || "";
+          html += `<td><textarea rows="3" style="border: none; background: transparent; padding: 4px; resize: vertical; width: 100%; font-size: 12px;" placeholder="${m === me ? "予定を入力" : ""}" onchange="updateSchedule('${m}', ${i}, this.value)">${val}</textarea></td>`;
+        });
+        html += `</tr>`;
+      });
+      document.getElementById("scheduleTable").innerHTML = html;
+    }
+
+    function updateSchedule(member, day, val) {
+      week.schedule[member][day] = val;
+      queueSave("week");
+    }
+
+    function renderTodos() {
+      const todos = week.todos[me] || [];
+      let html = "";
+      if (todos.length === 0) html = `<div style="color: #3D4F5E; font-size: 13px;">まだTODOがありません。</div>`;
+      todos.forEach((t) => {
+        html += `
+          <div class="todo-item ${t.done ? "done" : ""}">
+            <input type="checkbox" ${t.done ? "checked" : ""} onchange="toggleTodo(${t.id})">
+            <span style="flex: 1;">${t.text}</span>
+            <button class="btn btn-small btn-danger" onclick="deleteTodo(${t.id})">削除</button>
+          </div>
+        `;
+      });
+      document.getElementById("todoList").innerHTML = html;
+    }
+
+    function addTodo() {
+      const input = document.getElementById("todoInput");
+      const text = input.value.trim();
+      if (!text) return;
+      week.todos[me].push({ id: Date.now(), text, done: false });
+      input.value = "";
+      renderTodos();
+      queueSave("week");
+    }
+
+    function toggleTodo(id) {
+      const t = week.todos[me].find((x) => x.id === id);
+      if (t) t.done = !t.done;
+      renderTodos();
+      queueSave("week");
+    }
+
+    function deleteTodo(id) {
+      week.todos[me] = week.todos[me].filter((x) => x.id !== id);
+      renderTodos();
+      queueSave("week");
+    }
+
+    // ========== ICS パーサ ==========
+    function parseICS(text) {
+      const lines = text.split(/\r?\n/);
+      const unfolded = [];
+      for (const ln of lines) {
+        if ((ln.startsWith(" ") || ln.startsWith("\t")) && unfolded.length) unfolded[unfolded.length - 1] += ln.slice(1);
+        else unfolded.push(ln);
+      }
+      const events = [];
+      let cur = null;
+      for (const ln of unfolded) {
+        if (ln === "BEGIN:VEVENT") cur = {};
+        else if (ln === "END:VEVENT") { if (cur && cur.start) events.push(cur); cur = null; }
+        else if (cur) {
+          if (ln.startsWith("DTSTART")) {
+            const v = ln.split(":").slice(1).join(":").trim();
+            const y = +v.slice(0, 4), mo = +v.slice(4, 6) - 1, da = +v.slice(6, 8);
+            let h = 0, mi = 0;
+            if (v.length >= 13) { h = +v.slice(9, 11); mi = +v.slice(11, 13); }
+            let dt = new Date(y, mo, da, h, mi);
+            if (v.endsWith("Z")) dt = new Date(dt.getTime() + 9 * 3600 * 1000);
+            cur.start = dt;
+          } else if (ln.startsWith("SUMMARY")) {
+            cur.summary = ln.split(":").slice(1).join(":").replace(/\\,/g, ",").trim();
+          }
+        }
+      }
+      return events;
+    }
+
+    function importICS(e) {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const events = parseICS(reader.result);
+        const start = new Date(monday), end = new Date(monday);
+        end.setDate(end.getDate() + 5);
+        const hits = events.filter((e) => e.start >= start && e.start < end);
+        if (!hits.length) { alert("この週に該当する予定が見つかりませんでした。"); return; }
+        hits.forEach((e) => {
+          const idx = Math.floor((e.start - start) / 86400000);
+          if (idx < 0 || idx > 4) return;
+          const label = `${String(e.start.getHours()).padStart(2, "0")}:${String(e.start.getMinutes()).padStart(2, "0")} ${e.summary}`;
+          const cell = week.schedule[me][idx];
+          if (!cell.includes(label)) week.schedule[me][idx] = cell ? cell + "\n" + label : label;
+        });
+        renderScheduleTable();
+        queueSave("week");
+        alert(`${hits.length}件の予定を取り込みました。`);
+      };
+      reader.readAsText(file);
+    }
+
+    // ========== 案件管理 ==========
+    async function renderCases() {
+      const filterOwner = document.getElementById("filterOwner").value || "全員";
+      const showArchived = document.getElementById("showArchived").checked;
+      const activeCases = cases.filter((c) => (showArchived ? true : !c.archived))
+        .filter((c) => (filterOwner === "全員" ? true : c.owner === filterOwner))
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+      const catColor = (cat) => { const i = master.categories.indexOf(cat); return i >= 0 ? CAT_PALETTE[i % CAT_PALETTE.length] : "#8A959E"; };
+
+      let html = "";
+      if (activeCases.length === 0) {
+        html = `<div class="card" style="text-align: center; color: #3D4F5E; border: 1px dashed #DCE0E3;">案件がありません。「＋ 案件追加」から登録してください。</div>`;
+      } else {
+        html = activeCases.map((cs) => `
+          <div class="card" style="border-left: 4px solid ${catColor(cs.category)}; opacity: ${cs.archived ? 0.55 : 1};">
+            <div class="card-header">
+              <span class="chip" style="background: ${catColor(cs.category)}18; border: 1px solid ${catColor(cs.category)}44; color: ${catColor(cs.category)};">${cs.category}</span>
+              <span class="card-title">${cs.name}</span>
+              <span class="chip" style="background: #17242F18; border: 1px solid #17242F44; color: #17242F;">${cs.status}</span>
+              <span style="margin-left: auto; font-size: 12px; color: #3D4F5E;">${cs.owner}｜${cs.manday || 0}人日</span>
+            </div>
+            ${cs.nextPlan || cs.note ? `<div style="margin-top: 6px; font-size: 12px; color: #3D4F5E;">${cs.nextPlan ? `来週:${cs.nextPlan}<br>` : ""}${cs.note ? `備考:${cs.note}` : ""}</div>` : ""}
+            <div style="margin-top: 8px; display: flex; gap: 8px;">
+              <button class="btn btn-secondary" onclick="editCase(${cs.id})">編集</button>
+              <button class="btn btn-secondary btn-danger" onclick="toggleArchive(${cs.id})">${cs.archived ? "戻す" : "完了"}</button>
+            </div>
+          </div>
+        `).join("");
+      }
+      document.getElementById("casesList").innerHTML = html;
+    }
+
+    function editCase(id) {
+      if (id === null) {
+        editingCase = { id: null, owner: me, category: master.categories[0], name: "", status: master.statuses[0], manday: "", nextPlan: "", note: "", custom: {}, archived: false };
+      } else {
+        editingCase = structuredClone(cases.find((x) => x.id === id)) || null;
+      }
+      document.getElementById("caseModalTitle").textContent = editingCase.id ? "案件を編集" : "案件を追加";
+      
+      let html = `
+        <div class="modal-cols">
+          <div><label style="font-size: 12px; font-weight: 700;">担当<select id="caseOwner" style="width: 100%; margin-top: 4px;"><option>${editingCase.owner}</option>${master.members.filter((m) => m !== editingCase.owner).map((m) => `<option>${m}</option>`).join("")}</select></label></div>
+          <div><label style="font-size: 12px; font-weight: 700;">分類<select id="caseCategory" style="width: 100%; margin-top: 4px;"><option>${editingCase.category}</option>${master.categories.filter((c) => c !== editingCase.category).map((c) => `<option>${c}</option>`).join("")}</select></label></div>
+        </div>
+        <label style="font-size: 12px; font-weight: 700;">案件名・顧客名<input type="text" id="caseName" value="${editingCase.name}" style="margin-top: 4px;"></label>
+        <div class="modal-cols">
+          <div><label style="font-size: 12px; font-weight: 700;">進捗ステータス<select id="caseStatus" style="width: 100%; margin-top: 4px;"><option>${editingCase.status}</option>${master.statuses.filter((s) => s !== editingCase.status).map((s) => `<option>${s}</option>`).join("")}</select></label></div>
+          <div><label style="font-size: 12px; font-weight: 700;">今週人日<input type="number" id="caseManday" value="${editingCase.manday}" min="0" max="${master.mandayLimit}" step="0.5" style="margin-top: 4px;"></label></div>
+        </div>
+        <label style="font-size: 12px; font-weight: 700;">来週の予定<input type="text" id="caseNextPlan" value="${editingCase.nextPlan}" style="margin-top: 4px;"></label>
+        <label style="font-size: 12px; font-weight: 700;">備考<input type="text" id="caseNote" value="${editingCase.note}" style="margin-top: 4px;"></label>
+      `;
+      document.getElementById("caseFormGrid").innerHTML = html;
+      document.getElementById("caseModal").classList.add("show");
+    }
+
+    function saveCase() {
+      editingCase.owner = document.getElementById("caseOwner").value;
+      editingCase.category = document.getElementById("caseCategory").value;
+      editingCase.name = document.getElementById("caseName").value.trim();
+      editingCase.status = document.getElementById("caseStatus").value;
+      editingCase.manday = document.getElementById("caseManday").value;
+      editingCase.nextPlan = document.getElementById("caseNextPlan").value;
+      editingCase.note = document.getElementById("caseNote").value;
+
+      if (!editingCase.name) { alert("案件名を入力してください。"); return; }
+
+      if (editingCase.id) {
+        const i = cases.findIndex((x) => x.id === editingCase.id);
+        if (i >= 0) cases[i] = { ...editingCase, updatedAt: Date.now() };
+      } else {
+        cases.push({ ...editingCase, id: Date.now(), updatedAt: Date.now() });
+      }
+
+      closeCaseModal();
+      renderCases();
+      queueSave("cases");
+    }
+
+    function closeCaseModal() {
+      document.getElementById("caseModal").classList.remove("show");
+      editingCase = null;
+    }
+
+    function toggleArchive(id) {
+      const c = cases.find((x) => x.id === id);
+      if (c) { c.archived = !c.archived; c.updatedAt = Date.now(); }
+      renderCases();
+      queueSave("cases");
+    }
+
+    // ========== 会議モード ==========
+    function renderMeeting() {
+      const busyColor = (level) => { const i = master.busyLevels.indexOf(level); return i >= 0 ? BUSY_PALETTE[i % BUSY_PALETTE.length] : "#B0B7BD"; };
+      const mandaySum = (m) => cases.filter((c) => !c.archived && c.owner === m).reduce((a, c) => a + (parseFloat(c.manday) || 0), 0);
+
+      let html = "";
+      master.members.forEach((m) => {
+        const total = mandaySum(m);
+        const over = total >= master.mandayLimit;
+        html += `
+          <div class="card">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <span class="busy-dot" style="background: ${busyColor(week.busy[m])}; width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 3px ${busyColor(week.busy[m])}22;"></span>
+              <span style="font-weight: 900; font-size: 15px;">${m}</span>
+              <span style="font-size: 12.5px; color: ${over ? "#C53030" : "#3D4F5E"}; font-weight: ${over ? 800 : 400};">合計 ${total.toFixed(1)} 人日${over ? `(超過)` : ""}</span>
+              <select value="${week.busy[m] || ""}" onchange="updateBusy('${m}', this.value)" style="margin-left: auto; width: auto;">
+                <option value="">繁忙度を選択</option>
+                ${master.busyLevels.map((b) => `<option value="${b}" ${week.busy[m] === b ? "selected" : ""}>${b}</option>`).join("")}
+              </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+              <div>
+                <label style="font-size: 12px; font-weight: 700;">手伝ってほしいこと</label>
+                <textarea rows="2" value="${week.helpNeed[m] || ""}" onchange="week.helpNeed['${m}'] = this.value; queueSave('week');" style="margin-top: 4px; background: ${week.helpNeed[m] ? "#FDF1EC" : "#fff"};"></textarea>
+              </div>
+              <div>
+                <label style="font-size: 12px; font-weight: 700;">手伝えること</label>
+                <textarea rows="2" value="${week.helpGive[m] || ""}" onchange="week.helpGive['${m}'] = this.value; queueSave('week');" style="margin-top: 4px;"></textarea>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      html += `
+        <div class="section-header">
+          <span class="section-num">05</span>
+          <h2 class="section-title">会議メモ・決定事項</h2>
+        </div>
+        <div class="card">
+          <label style="font-size: 12px; font-weight: 700;">会議メモ</label>
+          <textarea id="meetingNoteInput" rows="4" style="margin-top: 4px;" onchange="week.meetingNote = this.value; queueSave('week');">${week.meetingNote}</textarea>
+          <label style="font-size: 12px; font-weight: 700; margin-top: 10px;">決定事項</label>
+          <textarea id="decisionsInput" rows="3" style="margin-top: 4px;" onchange="week.decisions = this.value; queueSave('week');">${week.decisions}</textarea>
+        </div>
+      `;
+
+      document.querySelector('[data-section="meeting"]').innerHTML = html;
+    }
+
+    function updateBusy(member, val) {
+      week.busy[member] = val;
+      queueSave("week");
+    }
+
+    // ========== 社長報告 ==========
+    function renderReport() {
+      const dates = weekDates(monday);
+      const mandaySum = (m) => cases.filter((c) => !c.archived && c.owner === m).reduce((a, c) => a + (parseFloat(c.manday) || 0), 0);
+      const activeCases = cases.filter((c) => !c.archived);
+
+      let html = `
+        <div style="background: #fff; border: 1px solid #DCE0E3; border-radius: 8px; padding: 22px 26px; font-size: 12px; line-height: 1.55; color: #111;">
+          <div style="border-bottom: 3px solid #17242F; padding-bottom: 8px; margin-bottom: 10px;">
+            <div style="font-size: 10px; letter-spacing: 2px; color: #E8590C; font-weight: 800;">D-WOLF WEEKLY REPORT</div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <h1 style="font-size: 19px; font-weight: 900; margin: 0;">D-WOLF 週次業務報告</h1>
+              <span>${fmtJP(monday)}(月)〜${fmtJP(dates[4])}(金)</span>
+            </div>
+            <div style="font-size: 11px; margin-top: 3px;">宛先:代表取締役 宮﨑隆司 様　作成:${master.manager}</div>
+          </div>
+
+          <h2 style="font-size: 13px; font-weight: 800; border-left: 4px solid #17242F; padding-left: 8px; margin: 14px 0 6px;">1. 稼働サマリー</h2>
+          <table style="border-collapse: collapse; width: 100%; margin-bottom: 10px;">
+            <tr>
+              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">氏名</th>
+              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">合計人日</th>
+              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">案件数</th>
+              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">繁忙度</th>
+              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">応援が必要なこと</th>
+            </tr>
+            ${master.members.map((m) => {
+              const isMax = week.busy[m] && master.busyLevels.indexOf(week.busy[m]) === master.busyLevels.length - 1;
+              return `
+                <tr style="background: ${isMax ? "#FDECEC" : ""};">
+                  <td style="border: 1px solid #CCC; padding: 4px 6px;">${m}</td>
+                  <td style="border: 1px solid #CCC; padding: 4px 6px; text-align: center;">${mandaySum(m).toFixed(1)}</td>
+                  <td style="border: 1px solid #CCC; padding: 4px 6px; text-align: center;">${cases.filter((c) => !c.archived && c.owner === m).length}</td>
+                  <td style="border: 1px solid #CCC; padding: 4px 6px; font-weight: 700;">${week.busy[m] || "―"}</td>
+                  <td style="border: 1px solid #CCC; padding: 4px 6px;">${week.helpNeed[m] || "―"}</td>
+                </tr>
+              `;
+            }).join("")}
+          </table>
+
+          <h2 style="font-size: 13px; font-weight: 800; border-left: 4px solid #17242F; padding-left: 8px; margin: 14px 0 6px;">2. 週間スケジュール</h2>
+          <table style="border-collapse: collapse; width: 100%; margin-bottom: 10px; font-size: 10.5px;">
+            <tr>
+              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px;">氏名</th>
+              ${DAYS.map((d, i) => `<th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px;">${d} ${fmtShort(dates[i])}</th>`).join("")}
+            </tr>
+            ${master.members.map((m) => `
+              <tr>
+                <td style="border: 1px solid #CCC; padding: 4px 6px; font-weight: 700;">${m}</td>
+                ${DAYS.map((_, i) => `<td style="border: 1px solid #CCC; padding: 4px 6px; white-space: pre-wrap;">${(week.schedule[m] || [])[i] || ""}</td>`).join("")}
+              </tr>
+            `).join("")}
+          </table>
+
+          <h2 style="font-size: 13px; font-weight: 800; border-left: 4px solid #17242F; padding-left: 8px; margin: 14px 0 6px;">3. 主な案件</h2>
+          <table style="border-collapse: collapse; width: 100%; margin-bottom: 10px;">
+            <tr>
+              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">担当</th>
+              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">分類</th>
+              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">案件名</th>
+              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">ステータス</th>
+              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">人日</th>
+              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">来週予定</th>
+            </tr>
+            ${activeCases.length === 0 ? `<tr><td colspan="6" style="border: 1px solid #CCC; padding: 4px 6px;">(今週の案件登録なし)</td></tr>` : activeCases.map((c) => `
+              <tr>
+                <td style="border: 1px solid #CCC; padding: 4px 6px;">${c.owner}</td>
+                <td style="border: 1px solid #CCC; padding: 4px 6px;">${c.category}</td>
+                <td style="border: 1px solid #CCC; padding: 4px 6px;">${c.name}</td>
+                <td style="border: 1px solid #CCC; padding: 4px 6px; text-align: center;">${c.status}</td>
+                <td style="border: 1px solid #CCC; padding: 4px 6px; text-align: center;">${c.manday || 0}</td>
+                <td style="border: 1px solid #CCC; padding: 4px 6px;">${c.nextPlan || ""}</td>
+              </tr>
+            `).join("")}
+          </table>
+
+          <h2 style="font-size: 13px; font-weight: 800; border-left: 4px solid #17242F; padding-left: 8px; margin: 14px 0 6px;">4. 決定事項</h2>
+          <div style="border: 1px solid #CCC; border-radius: 4px; padding: 8px 10px; min-height: 40px; white-space: pre-wrap;">${week.decisions || "(記載なし)"}</div>
+        </div>
+      `;
+
+      document.getElementById("printArea").innerHTML = html;
+    }
+
+    // ========== マスター管理 ==========
+    function renderMaster() {
+      let html = `
+        <div class="section-header">
+          <span class="section-num">07</span>
+          <h2 class="section-title">マスター管理</h2>
+        </div>
+        <div class="alert alert-warning">
+          ここでの変更は全メンバーの画面に即時反映されます。変更は管理責任者が行う運用を推奨します。
+        </div>
+
+        <div class="card">
+          <h3 style="font-weight: 800; margin-bottom: 10px;">メンバー</h3>
+          <div style="display: grid; gap: 6px; margin-bottom: 10px;">
+            ${master.members.map((m) => `
+              <div style="display: flex; align-items: center; gap: 8px; border: 1px solid #DCE0E3; border-radius: 6px; padding: 6px 10px;">
+                <span style="flex: 1; font-weight: 600;">${m}</span>
+                <button class="btn btn-small btn-danger" onclick="removeMember('${m}')">削除</button>
+              </div>
+            `).join("")}
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="newMember" placeholder="氏名を入力" onkeydown="if(event.key==='Enter') addMember()">
+            <button class="btn btn-primary" onclick="addMember()">追加</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 style="font-weight: 800; margin-bottom: 10px;">管理責任者</h3>
+          <select id="managerSelect" onchange="master.manager = this.value; queueSave('master'); renderMaster();" style="width: auto;">
+            ${master.members.map((m) => `<option value="${m}" ${m === master.manager ? "selected" : ""}>${m}</option>`).join("")}
+          </select>
+        </div>
+
+        <div class="card">
+          <h3 style="font-weight: 800; margin-bottom: 10px;">案件分類</h3>
+          <div style="display: grid; gap: 6px; margin-bottom: 10px;">
+            ${master.categories.map((c, i) => `
+              <div style="display: flex; align-items: center; gap: 8px; border: 1px solid #DCE0E3; border-radius: 6px; padding: 6px 10px;">
+                <span style="width: 10px; height: 10px; border-radius: 50%; background: ${CAT_PALETTE[i % CAT_PALETTE.length]};"></span>
+                <span style="flex: 1; font-weight: 600;">${c}</span>
+                <button class="btn btn-small btn-danger" onclick="removeCategory('${c}')">削除</button>
+              </div>
+            `).join("")}
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="newCategory" placeholder="分類名を入力" onkeydown="if(event.key==='Enter') addCategory()">
+            <button class="btn btn-primary" onclick="addCategory()">追加</button>
+          </div>
+        </div>
+      `;
+
+      document.querySelector('[data-section="master"]').innerHTML = html;
+    }
+
+    function addMember() {
+      const val = document.getElementById("newMember").value.trim();
+      if (!val || master.members.includes(val)) return;
+      master.members.push(val);
+      document.getElementById("newMember").value = "";
+      queueSave("master");
+      renderMaster();
+      renderMemberButtons();
+      init();
+    }
+
+    function removeMember(m) {
+      if (!confirm(`「${m}」を削除しますか?`)) return;
+      master.members = master.members.filter((x) => x !== m);
+      if (master.manager === m) master.manager = master.members[0] || "";
+      queueSave("master");
+      renderMaster();
+      renderMemberButtons();
+    }
+
+    function addCategory() {
+      const val = document.getElementById("newCategory").value.trim();
+      if (!val || master.categories.includes(val)) return;
+      master.categories.push(val);
+      document.getElementById("newCategory").value = "";
+      queueSave("master");
+      renderMaster();
+    }
+
+    function removeCategory(c) {
+      if (!confirm(`「${c}」を削除しますか?`)) return;
+      master.categories = master.categories.filter((x) => x !== c);
+      queueSave("master");
+      renderMaster();
+    }
+
+    // ========== 設定 ==========
+    function renderSettings() {
+      let html = `
+        <div class="section-header">
+          <span class="section-num">08</span>
+          <h2 class="section-title">GoogleカレンダーICS URL登録</h2>
+        </div>
+        <div class="card">
+          <ol style="padding-left: 20px; line-height: 1.9; color: #3D4F5E; font-size: 12.5px; margin-bottom: 14px;">
+            <li>PCのGoogleカレンダーで歯車 → 設定 → 「マイカレンダー」で自分のカレンダーを選択</li>
+            <li>「カレンダーの統合」内の「<strong>iCal形式の公開URL</strong>」をコピー</li>
+            <li>下の自分の欄に貼り付け(自動保存)</li>
+          </ol>
+          <div style="display: grid; gap: 10px;">
+            ${master.members.map((m) => `
+              <label style="font-size: 12px; font-weight: 700;">
+                ${m}
+                <input type="text" value="${settings.icsUrls?.[m] || ""}" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" 
+                  onchange="settings.icsUrls = settings.icsUrls || {}; settings.icsUrls['${m}'] = this.value; queueSave('settings');" 
+                  style="margin-top: 4px;">
+              </label>
+            `).join("")}
+          </div>
+        </div>
+      `;
+
+      document.querySelector('[data-section="settings"]').innerHTML = html;
+    }
+
+    // ========== 共通 ==========
+    async function reload() {
+      await init();
+      renderBoard();
+    }
+
+    function logout() {
+      me = null;
+      document.getElementById("loginScreen").style.display = "flex";
+    }
+
+    // 初期化
+    init();
+  </script>
+</body>
+</html>
