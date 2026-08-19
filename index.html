@@ -116,6 +116,8 @@
   <nav id="appNav" style="display:none;">
     <button class="tab-btn active" data-tab="board">週間ボード</button>
     <button class="tab-btn" data-tab="cases">案件管理</button>
+    <button class="tab-btn" data-tab="kanban">カンバン</button>
+    <button class="tab-btn" data-tab="dashboard">ダッシュボード</button>
     <button class="tab-btn" data-tab="feed">連絡事項<span class="badge" id="feedBadge" style="display:none;"></span></button>
     <button class="tab-btn" data-tab="nippo">日報</button>
     <button class="tab-btn" data-tab="meeting">会議モード</button>
@@ -177,7 +179,21 @@
         </div>
       </div>
       <div class="alert alert-info" style="font-size:12px;">案件は週をまたいで自動継続します。完了したら「完了」でアーカイブしてください。</div>
+      <div id="dueAlerts"></div>
       <div id="casesList"></div>
+    </div>
+
+    <!-- カンバン -->
+    <div class="section" data-section="kanban">
+      <div class="section-header"><span class="section-num">03</span><h2 class="section-title">カンバンボード(進捗俯瞰)</h2></div>
+      <div class="alert alert-info" style="font-size:12px;">◀ ▶ ボタンでステータスを移動できます(変更は履歴に自動記録されます)。</div>
+      <div id="kanbanBoard" style="display:flex; gap:10px; overflow-x:auto; align-items:flex-start; padding-bottom:8px;"></div>
+    </div>
+
+    <!-- ダッシュボード -->
+    <div class="section" data-section="dashboard">
+      <div class="section-header"><span class="section-num">03</span><h2 class="section-title">ダッシュボード(自動集計)</h2></div>
+      <div id="dashboardPanel"></div>
     </div>
 
     <!-- 連絡事項 -->
@@ -285,6 +301,34 @@
   </div>
 </div>
 
+<!-- ファイル格納モーダル -->
+<div class="modal" id="fileModal">
+  <div class="modal-content">
+    <h3 class="modal-title" id="fileModalTitle"></h3>
+    <div id="fileList" style="max-height:40vh; overflow-y:auto; margin-bottom:10px;"></div>
+    <div style="border:2px dashed #DCE0E3; border-radius:8px; padding:14px; text-align:center;">
+      <input type="file" id="fileUploadInput" multiple style="display:none;">
+      <button class="btn btn-primary" id="btnFileSelect">ファイルを選択してアップロード</button>
+      <div style="font-size:11.5px; color:#6B7A87; margin-top:6px;">見積書・報告書・現場写真など(複数選択可・1ファイル最大50MB)</div>
+      <div id="fileUploadState" style="font-size:12px; color:#E8590C; margin-top:4px;"></div>
+    </div>
+    <div style="display:flex; margin-top:12px; justify-content:flex-end;">
+      <button class="btn btn-secondary" id="btnFileClose">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 進捗履歴モーダル -->
+<div class="modal" id="historyModal">
+  <div class="modal-content">
+    <h3 class="modal-title" id="historyModalTitle"></h3>
+    <div id="historyList" style="max-height:55vh; overflow-y:auto;"></div>
+    <div style="display:flex; margin-top:12px; justify-content:flex-end;">
+      <button class="btn btn-secondary" id="btnHistoryClose">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* =====================================================
    ① 初期設定:Supabase の値をここに貼り付けてください
@@ -310,15 +354,20 @@ let me = null;
 let master = structuredClone(DEFAULT_MASTER);
 let week = null;
 let cases = [];
+let customers = [];
 let settings = {};
 let announcements = [];
 let commentCounts = {};
+let fileCounts = {};
 let monday = getMonday(new Date());
 let currentTab = "board";
 let saveTimers = {};
 let editingCase = null;
 let commentCaseId = null;
+let fileCaseId = null;
 let selectedLoginName = null;
+const BILLING_STATUSES = ["未請求","請求済","入金済"];
+const fmtYen = (n)=>{ const v=parseFloat(n); return isNaN(v)||v===0? "" : "¥"+v.toLocaleString("ja-JP"); };
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
@@ -349,11 +398,20 @@ async function loadCases(){
   const {data}=await sb.from("cases").select("id,data").order("id",{ascending:false});
   cases=(data||[]).map(r=>({ id:r.id, ...r.data }));
   const ids=cases.map(c=>c.id);
-  commentCounts={};
+  commentCounts={}; fileCounts={};
   if(ids.length){
     const {data:cm}=await sb.from("comments").select("case_id").in("case_id",ids);
     (cm||[]).forEach(r=>{ commentCounts[r.case_id]=(commentCounts[r.case_id]||0)+1; });
+    const {data:cf}=await sb.from("case_files").select("case_id").in("case_id",ids);
+    (cf||[]).forEach(r=>{ fileCounts[r.case_id]=(fileCounts[r.case_id]||0)+1; });
   }
+}
+async function loadCustomers(){
+  const {data}=await sb.from("customers").select("*").order("name",{ascending:true});
+  customers=data||[];
+}
+async function logCaseHistory(caseId, action, detail){
+  try{ await sb.from("case_history").insert({case_id:caseId, author:me, action, detail}); }catch(e){}
 }
 async function saveCaseRow(c){
   const {id, ...rest}=c;
@@ -460,7 +518,9 @@ async function switchTab(tab){
   document.querySelectorAll(".tab-btn").forEach(b=>b.classList.toggle("active", b.dataset.tab===tab));
   document.querySelectorAll(".section").forEach(d=>d.classList.toggle("active", d.dataset.section===tab));
   if(tab==="board"){ await loadWeek(); renderBoard(); }
-  if(tab==="cases"){ await loadCases(); renderCases(); }
+  if(tab==="cases"){ await Promise.all([loadCases(), loadCustomers()]); renderCases(); }
+  if(tab==="kanban"){ await loadCases(); renderKanban(); }
+  if(tab==="dashboard"){ await loadCases(); renderDashboard(); }
   if(tab==="feed"){ await loadAnnouncements(); renderFeed(); await renderAudit(); refreshFeedBadge(); }
   if(tab==="nippo"){ await renderNippo(); }
   if(tab==="meeting"){ await Promise.all([loadWeek(), loadCases()]); renderMeeting(); }
@@ -662,63 +722,110 @@ function importICS(e){
 
 /* ---------- 案件管理 ---------- */
 function catColor(cat){ const i=master.categories.indexOf(cat); return i>=0? CAT_PALETTE[i%CAT_PALETTE.length] : "#8A959E"; }
+function dueInfo(cs){
+  if(!cs.dueDate||cs.archived) return null;
+  const today=new Date(); today.setHours(0,0,0,0);
+  const due=new Date(cs.dueDate+"T00:00:00");
+  const diff=Math.round((due-today)/86400000);
+  if(diff<0) return {level:"over", label:`納期超過(${-diff}日)`, diff};
+  if(diff<=3) return {level:"soon", label:diff===0?"納期本日":`納期まで${diff}日`, diff};
+  return null;
+}
+function renderDueAlerts(){
+  const alerts=cases.map(c=>({c, d:dueInfo(c)})).filter(x=>x.d);
+  const over=alerts.filter(x=>x.d.level==="over");
+  const soon=alerts.filter(x=>x.d.level==="soon");
+  let html="";
+  if(over.length) html+=`<div class="alert alert-error"><b>納期超過:</b>${over.map(x=>`${esc(x.c.name)}(${esc(x.c.owner)}・${esc(x.c.dueDate)})`).join("　/　")}</div>`;
+  if(soon.length) html+=`<div class="alert alert-warning"><b>納期間近:</b>${soon.map(x=>`${esc(x.c.name)}(${esc(x.c.owner)}・${x.d.label})`).join("　/　")}</div>`;
+  $("dueAlerts").innerHTML=html;
+}
 function renderCases(){
   const sel=$("filterOwner");
   const cur=sel.value||"全員";
   sel.innerHTML=`<option>全員</option>`+master.members.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
   const showArchived=$("showArchived").checked;
+  renderDueAlerts();
   const list=cases
     .filter(c=>showArchived? true : !c.archived)
     .filter(c=>sel.value==="全員"? true : c.owner===sel.value)
     .sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
   $("casesList").innerHTML = list.length===0
     ? `<div class="card" style="text-align:center; color:#3D4F5E; border-style:dashed;">案件がありません。「＋ 案件追加」から登録してください。</div>`
-    : list.map(cs=>`
+    : list.map(cs=>{
+      const d=dueInfo(cs);
+      const dueChip=cs.dueDate? `<span class="chip" style="${d? (d.level==="over"?"background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;":"background:#FFF8E6; border:1px solid #E5C56A; color:#7A5B00;") : "background:#F2F3F1; border:1px solid #DCE0E3; color:#3D4F5E;"}">納期 ${esc(cs.dueDate)}${d?`・${d.label}`:""}</span>` : "";
+      const amounts=[cs.quoteAmount?`見積 ${fmtYen(cs.quoteAmount)}`:"", cs.orderAmount?`受注 ${fmtYen(cs.orderAmount)}`:"", cs.billingStatus&&cs.billingStatus!=="未請求"?esc(cs.billingStatus):""].filter(Boolean).join("　");
+      return `
       <div class="card" style="border-left:4px solid ${catColor(cs.category)}; opacity:${cs.archived?0.55:1};">
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <span class="chip" style="background:${catColor(cs.category)}18; border:1px solid ${catColor(cs.category)}44; color:${catColor(cs.category)};">${esc(cs.category)}</span>
           <span style="font-size:14.5px; font-weight:800;">${esc(cs.name)}</span>
           <span class="chip" style="background:#17242F14; border:1px solid #17242F33;">${esc(cs.status)}</span>
+          ${dueChip}
           <span style="margin-left:auto; font-size:12px; color:#3D4F5E;">${esc(cs.owner)}｜${cs.manday||0}人日</span>
         </div>
-        ${cs.nextPlan||cs.note? `<div style="margin-top:6px; font-size:12px; color:#3D4F5E;">${cs.nextPlan?`来週:${esc(cs.nextPlan)}<br>`:""}${cs.note?`備考:${esc(cs.note)}`:""}</div>`:""}
+        ${cs.customerName? `<div style="margin-top:5px; font-size:12.5px; font-weight:700; color:#17242F;">顧客:${esc(cs.customerName)}${cs.execDate?`　<span style="font-weight:400; color:#3D4F5E;">実施日:${esc(cs.execDate)}</span>`:""}</div>`: (cs.execDate?`<div style="margin-top:5px; font-size:12.5px; color:#3D4F5E;">実施日:${esc(cs.execDate)}</div>`:"")}
+        ${amounts? `<div style="margin-top:4px; font-size:12.5px; color:#2F6A4F; font-weight:700;">${amounts}</div>`:""}
+        ${cs.nextPlan||cs.note? `<div style="margin-top:5px; font-size:12px; color:#3D4F5E;">${cs.nextPlan?`来週:${esc(cs.nextPlan)}<br>`:""}${cs.note?`備考:${esc(cs.note)}`:""}</div>`:""}
         <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
           <button class="btn btn-secondary btn-small" data-case-edit="${cs.id}">編集</button>
           <button class="btn btn-secondary btn-small" data-case-cm="${cs.id}">コメント${commentCounts[cs.id]?`(${commentCounts[cs.id]})`:""}</button>
+          <button class="btn btn-secondary btn-small" data-case-file="${cs.id}">ファイル${fileCounts[cs.id]?`(${fileCounts[cs.id]})`:""}</button>
+          <button class="btn btn-secondary btn-small" data-case-his="${cs.id}">履歴</button>
           <button class="btn btn-secondary btn-small btn-danger" data-case-ar="${cs.id}">${cs.archived?"戻す":"完了"}</button>
         </div>
-      </div>`).join("");
+      </div>`;}).join("");
   document.querySelectorAll("[data-case-edit]").forEach(b=>b.addEventListener("click",()=>openCase(+b.dataset.caseEdit)));
   document.querySelectorAll("[data-case-cm]").forEach(b=>b.addEventListener("click",()=>openComments(+b.dataset.caseCm)));
+  document.querySelectorAll("[data-case-file]").forEach(b=>b.addEventListener("click",()=>openFiles(+b.dataset.caseFile)));
+  document.querySelectorAll("[data-case-his]").forEach(b=>b.addEventListener("click",()=>openHistory(+b.dataset.caseHis)));
   document.querySelectorAll("[data-case-ar]").forEach(b=>b.addEventListener("click",async ()=>{
     const c=cases.find(x=>x.id==+b.dataset.caseAr); if(!c) return;
     c.archived=!c.archived; c.updatedAt=Date.now();
     await saveCaseRow(c);
     await logAction(c.archived?"案件完了":"案件再開", c.name);
+    await logCaseHistory(c.id, c.archived?"完了":"再開", "");
     renderCases(); setStatus("保存しました");
   }));
 }
 function openCase(id){
   editingCase = id==null
-    ? {id:null, owner:me, category:master.categories[0], name:"", status:master.statuses[0], manday:"", nextPlan:"", note:"", archived:false}
+    ? {id:null, owner:me, category:master.categories[0], name:"", status:master.statuses[0], manday:"", nextPlan:"", note:"", archived:false,
+       customerId:"", customerName:"", quoteAmount:"", orderAmount:"", billingStatus:BILLING_STATUSES[0], execDate:"", dueDate:""}
     : structuredClone(cases.find(x=>x.id===id));
   $("caseModalTitle").textContent=editingCase.id? "案件を編集" : "案件を追加";
   const opt=(arr,cur)=>arr.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("");
+  const custOpts=`<option value="">(選択なし・下に直接入力)</option>`+customers.map(c=>`<option value="${c.id}" ${String(editingCase.customerId)===String(c.id)?"selected":""}>${esc(c.name)}</option>`).join("");
   $("caseFormGrid").innerHTML=`
     <div class="modal-cols">
       <label style="font-size:12px; font-weight:700;">担当<select id="cfOwner" class="w100" style="margin-top:4px;">${opt(master.members, editingCase.owner)}</select></label>
       <label style="font-size:12px; font-weight:700;">分類<select id="cfCat" class="w100" style="margin-top:4px;">${opt(master.categories, editingCase.category)}</select></label>
     </div>
-    <label style="font-size:12px; font-weight:700;">案件名・顧客名<input type="text" id="cfName" class="w100" value="${esc(editingCase.name)}" style="margin-top:4px;"></label>
+    <label style="font-size:12px; font-weight:700;">案件名<input type="text" id="cfName" class="w100" value="${esc(editingCase.name)}" style="margin-top:4px;"></label>
+    <div class="modal-cols">
+      <label style="font-size:12px; font-weight:700;">顧客(マスターから選択)<select id="cfCustomer" class="w100" style="margin-top:4px;">${custOpts}</select></label>
+      <label style="font-size:12px; font-weight:700;">顧客名(直接入力)<input type="text" id="cfCustomerName" class="w100" value="${esc(editingCase.customerName||"")}" placeholder="マスター未登録の場合" style="margin-top:4px;"></label>
+    </div>
     <div class="modal-cols">
       <label style="font-size:12px; font-weight:700;">進捗ステータス<select id="cfStatus" class="w100" style="margin-top:4px;">${opt(master.statuses, editingCase.status)}</select></label>
       <label style="font-size:12px; font-weight:700;">今週人日<input type="number" id="cfManday" class="w100" value="${esc(editingCase.manday)}" min="0" step="0.5" style="margin-top:4px;"></label>
     </div>
+    <div class="modal-cols">
+      <label style="font-size:12px; font-weight:700;">実施日<input type="date" id="cfExecDate" class="w100" value="${esc(editingCase.execDate||"")}" style="margin-top:4px;"></label>
+      <label style="font-size:12px; font-weight:700;">納期<input type="date" id="cfDueDate" class="w100" value="${esc(editingCase.dueDate||"")}" style="margin-top:4px;"></label>
+    </div>
+    <div class="modal-cols">
+      <label style="font-size:12px; font-weight:700;">見積額(円)<input type="number" id="cfQuote" class="w100" value="${esc(editingCase.quoteAmount||"")}" min="0" step="1000" style="margin-top:4px;"></label>
+      <label style="font-size:12px; font-weight:700;">受注額(円)<input type="number" id="cfOrder" class="w100" value="${esc(editingCase.orderAmount||"")}" min="0" step="1000" style="margin-top:4px;"></label>
+    </div>
+    <label style="font-size:12px; font-weight:700;">請求状況<select id="cfBilling" class="w100" style="margin-top:4px;">${opt(BILLING_STATUSES, editingCase.billingStatus||BILLING_STATUSES[0])}</select></label>
     <label style="font-size:12px; font-weight:700;">来週の予定<input type="text" id="cfNext" class="w100" value="${esc(editingCase.nextPlan)}" style="margin-top:4px;"></label>
     <label style="font-size:12px; font-weight:700;">備考<input type="text" id="cfNote" class="w100" value="${esc(editingCase.note)}" style="margin-top:4px;"></label>`;
   $("caseModal").classList.add("show");
 }
 async function saveCase(){
+  const before=editingCase.id? cases.find(x=>x.id===editingCase.id) : null;
   editingCase.owner=$("cfOwner").value;
   editingCase.category=$("cfCat").value;
   editingCase.name=$("cfName").value.trim();
@@ -726,15 +833,216 @@ async function saveCase(){
   editingCase.manday=$("cfManday").value;
   editingCase.nextPlan=$("cfNext").value;
   editingCase.note=$("cfNote").value;
+  editingCase.execDate=$("cfExecDate").value;
+  editingCase.dueDate=$("cfDueDate").value;
+  editingCase.quoteAmount=$("cfQuote").value;
+  editingCase.orderAmount=$("cfOrder").value;
+  editingCase.billingStatus=$("cfBilling").value;
+  const custSel=$("cfCustomer").value;
+  if(custSel){
+    editingCase.customerId=custSel;
+    const cust=customers.find(c=>String(c.id)===String(custSel));
+    editingCase.customerName=cust? cust.name : "";
+  }else{
+    editingCase.customerId="";
+    editingCase.customerName=$("cfCustomerName").value.trim();
+  }
   if(!editingCase.name){ alert("案件名を入力してください。"); return; }
   const isNew=!editingCase.id;
   if(isNew) editingCase.id=Date.now();
   editingCase.updatedAt=Date.now();
   const ok=await saveCaseRow(editingCase);
-  if(ok) await logAction(isNew?"案件追加":"案件更新", `${editingCase.name}(${editingCase.status})`);
+  if(ok){
+    await logAction(isNew?"案件追加":"案件更新", `${editingCase.name}(${editingCase.status})`);
+    if(isNew){
+      await logCaseHistory(editingCase.id, "案件作成", `${editingCase.status}`);
+    }else if(before){
+      if(before.status!==editingCase.status) await logCaseHistory(editingCase.id, "ステータス変更", `${before.status} → ${editingCase.status}`);
+      if(String(before.billingStatus||"")!==String(editingCase.billingStatus||"")) await logCaseHistory(editingCase.id, "請求状況変更", `${before.billingStatus||"未請求"} → ${editingCase.billingStatus}`);
+      if(String(before.orderAmount||"")!==String(editingCase.orderAmount||"")) await logCaseHistory(editingCase.id, "受注額変更", `${fmtYen(before.orderAmount)||"なし"} → ${fmtYen(editingCase.orderAmount)||"なし"}`);
+      if(String(before.dueDate||"")!==String(editingCase.dueDate||"")) await logCaseHistory(editingCase.id, "納期変更", `${before.dueDate||"未設定"} → ${editingCase.dueDate||"未設定"}`);
+    }
+  }
   $("caseModal").classList.remove("show");
   await loadCases(); renderCases();
   setStatus(ok?"保存しました":"保存失敗", ok);
+}
+
+/* ---------- ファイル格納(Supabase Storage) ---------- */
+async function openFiles(caseId){
+  fileCaseId=caseId;
+  const c=cases.find(x=>x.id===caseId);
+  $("fileModalTitle").textContent=`ファイル:${c? c.name:""}`;
+  $("fileUploadState").textContent="";
+  await renderFiles();
+  $("fileModal").classList.add("show");
+}
+async function renderFiles(){
+  const {data}=await sb.from("case_files").select("*").eq("case_id",fileCaseId).order("id",{ascending:false});
+  $("fileList").innerHTML=(data||[]).length===0
+    ? `<div style="color:#6B7A87; font-size:12.5px;">まだファイルがありません。</div>`
+    : data.map(f=>{
+      const url=`${SUPABASE_URL}/storage/v1/object/public/case-files/${f.path}`;
+      const sizeMB=f.size? (f.size/1048576).toFixed(1)+"MB" : "";
+      return `
+      <div style="display:flex; align-items:center; gap:8px; border-bottom:1px solid #EEE; padding:7px 2px;">
+        <a href="${url}" target="_blank" rel="noopener" style="flex:1; font-size:13px; color:#B34608; font-weight:700; text-decoration:none; word-break:break-all;">${esc(f.filename)}</a>
+        <span style="font-size:11px; color:#8A959E; white-space:nowrap;">${esc(f.author||"")}・${fmtDT(f.created_at)}${sizeMB?`・${sizeMB}`:""}</span>
+        <button class="btn btn-small btn-secondary btn-danger" data-file-del="${f.id}" data-file-path="${esc(f.path)}">削除</button>
+      </div>`;}).join("");
+  document.querySelectorAll("[data-file-del]").forEach(b=>b.addEventListener("click",async ()=>{
+    if(!confirm("このファイルを削除しますか?")) return;
+    await sb.storage.from("case-files").remove([b.dataset.filePath]);
+    await sb.from("case_files").delete().eq("id",+b.dataset.fileDel);
+    await renderFiles();
+  }));
+}
+async function uploadFiles(fileList){
+  const files=Array.from(fileList||[]); if(!files.length) return;
+  const c=cases.find(x=>x.id===fileCaseId);
+  for(let i=0;i<files.length;i++){
+    const f=files[i];
+    if(f.size>50*1048576){ $("fileUploadState").textContent=`${f.name} は50MBを超えるためスキップしました。`; continue; }
+    $("fileUploadState").textContent=`アップロード中… (${i+1}/${files.length})`;
+    const ext=f.name.includes(".")? "."+f.name.split(".").pop() : "";
+    const path=`${fileCaseId}/${Date.now()}_${Math.random().toString(36).slice(2,8)}${ext}`;
+    const {error}=await sb.storage.from("case-files").upload(path, f, {contentType:f.type||"application/octet-stream"});
+    if(error){ $("fileUploadState").textContent=`アップロード失敗:${error.message}`; continue; }
+    await sb.from("case_files").insert({case_id:fileCaseId, filename:f.name, path, size:f.size, author:me});
+    await logCaseHistory(fileCaseId, "ファイル追加", f.name);
+    await logAction("ファイル追加", `${c?c.name:""}:${f.name}`);
+  }
+  $("fileUploadState").textContent="アップロード完了";
+  await renderFiles();
+  await loadCases();
+  if(currentTab==="cases") renderCases();
+}
+
+/* ---------- 進捗履歴タイムライン ---------- */
+async function openHistory(caseId){
+  const c=cases.find(x=>x.id===caseId);
+  $("historyModalTitle").textContent=`進捗履歴:${c? c.name:""}`;
+  const {data}=await sb.from("case_history").select("*").eq("case_id",caseId).order("id",{ascending:false});
+  $("historyList").innerHTML=(data||[]).length===0
+    ? `<div style="color:#6B7A87; font-size:12.5px;">履歴はまだありません(編集・ステータス変更で自動記録されます)。</div>`
+    : data.map(h=>`
+      <div style="display:flex; gap:10px; border-bottom:1px solid #EEE; padding:8px 2px; font-size:12.5px;">
+        <span style="color:#8A959E; min-width:96px;">${fmtDT(h.created_at)}</span>
+        <span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3; height:fit-content;">${esc(h.action)}</span>
+        <span style="flex:1;"><strong>${esc(h.author)}</strong>　${esc(h.detail||"")}</span>
+      </div>`).join("");
+  $("historyModal").classList.add("show");
+}
+
+/* ---------- カンバンボード ---------- */
+function renderKanban(){
+  const active=cases.filter(c=>!c.archived);
+  $("kanbanBoard").innerHTML=master.statuses.map((st,si)=>{
+    const items=active.filter(c=>c.status===st);
+    return `
+    <div style="min-width:230px; width:230px; flex-shrink:0; background:#fff; border:1px solid #DCE0E3; border-radius:10px;">
+      <div style="background:#17242F; color:#fff; border-radius:10px 10px 0 0; padding:8px 10px; font-size:12.5px; font-weight:800; display:flex; justify-content:space-between;">
+        <span>${esc(st)}</span><span style="color:#9FB0BC;">${items.length}</span>
+      </div>
+      <div style="padding:8px; display:grid; gap:8px; min-height:60px;">
+        ${items.length===0? `<div style="color:#B0B7BD; font-size:11.5px; text-align:center; padding:10px 0;">なし</div>` : items.map(c=>{
+          const d=dueInfo(c);
+          return `
+          <div style="border:1px solid #DCE0E3; border-left:4px solid ${catColor(c.category)}; border-radius:7px; padding:8px;">
+            <div style="font-size:12.5px; font-weight:800; line-height:1.4;">${esc(c.name)}</div>
+            <div style="font-size:11px; color:#3D4F5E; margin-top:3px;">${esc(c.owner)}${c.customerName?`｜${esc(c.customerName)}`:""}</div>
+            ${c.dueDate? `<div style="font-size:11px; margin-top:2px; color:${d? (d.level==="over"?"#9B2C2C":"#7A5B00") : "#8A959E"}; font-weight:${d?800:400};">納期 ${esc(c.dueDate)}${d?`(${d.label})`:""}</div>`:""}
+            <div style="display:flex; justify-content:space-between; margin-top:6px;">
+              <button class="btn btn-small btn-secondary" data-kb-move="${c.id}|-1" ${si===0?"disabled style='opacity:0.3;'":""}>◀</button>
+              <button class="btn btn-small btn-secondary" data-kb-edit="${c.id}">編集</button>
+              <button class="btn btn-small btn-secondary" data-kb-move="${c.id}|1" ${si===master.statuses.length-1?"disabled style='opacity:0.3;'":""}>▶</button>
+            </div>
+          </div>`;}).join("")}
+      </div>
+    </div>`;}).join("");
+  document.querySelectorAll("[data-kb-move]").forEach(b=>b.addEventListener("click",async ()=>{
+    const [id,dir]=b.dataset.kbMove.split("|");
+    const c=cases.find(x=>x.id==+id); if(!c) return;
+    const i=master.statuses.indexOf(c.status);
+    const ni=i+(+dir);
+    if(ni<0||ni>=master.statuses.length) return;
+    const old=c.status;
+    c.status=master.statuses[ni]; c.updatedAt=Date.now();
+    await saveCaseRow(c);
+    await logCaseHistory(c.id, "ステータス変更", `${old} → ${c.status}`);
+    await logAction("ステータス変更", `${c.name}:${old} → ${c.status}`);
+    renderKanban(); setStatus("保存しました");
+  }));
+  document.querySelectorAll("[data-kb-edit]").forEach(b=>b.addEventListener("click",async ()=>{
+    await loadCustomers();
+    openCase(+b.dataset.kbEdit);
+  }));
+}
+
+/* ---------- ダッシュボード ---------- */
+function renderDashboard(){
+  const active=cases.filter(c=>!c.archived);
+  const num=(v)=>parseFloat(v)||0;
+  const sum=(arr,f)=>arr.reduce((a,c)=>a+f(c),0);
+  const orderTotal=sum(active,c=>num(c.orderAmount));
+  const unbilled=sum(active.filter(c=>num(c.orderAmount)>0&&(!c.billingStatus||c.billingStatus==="未請求")),c=>num(c.orderAmount));
+  const billed=sum(active.filter(c=>c.billingStatus==="請求済"),c=>num(c.orderAmount));
+  const paid=sum(cases.filter(c=>c.billingStatus==="入金済"),c=>num(c.orderAmount));
+  const ym=new Date(); const thisMonth=`${ym.getFullYear()}-${String(ym.getMonth()+1).padStart(2,"0")}`;
+  const monthExec=cases.filter(c=>(c.execDate||"").startsWith(thisMonth));
+  const kpi=(label,val,sub)=>`
+    <div style="flex:1; min-width:150px; background:#fff; border:1px solid #DCE0E3; border-radius:10px; padding:12px 14px;">
+      <div style="font-size:11px; color:#6B7A87; font-weight:700;">${label}</div>
+      <div style="font-size:20px; font-weight:900; color:#17242F; margin-top:2px;">${val}</div>
+      ${sub?`<div style="font-size:10.5px; color:#8A959E; margin-top:1px;">${sub}</div>`:""}
+    </div>`;
+  const maxBar=(rows)=>Math.max(1,...rows.map(r=>r.amount));
+  const barTable=(title, rows)=>{
+    const mx=maxBar(rows);
+    return `
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:10px;">${title}</h3>
+      ${rows.length===0? `<div style="color:#6B7A87; font-size:12px;">対象データがありません。</div>` : rows.map(r=>`
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:7px;">
+          <span style="width:90px; font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(r.label)}</span>
+          <div style="flex:1; background:#F2F3F1; border-radius:4px; height:20px; position:relative;">
+            <div style="width:${Math.round(r.amount/mx*100)}%; min-width:${r.amount>0?"3px":"0"}; background:${r.color||"#E8590C"}; height:100%; border-radius:4px;"></div>
+          </div>
+          <span style="width:150px; font-size:12px; text-align:right; white-space:nowrap;">${r.count}件${r.amount?`｜${fmtYen(r.amount)}`:""}${r.extra||""}</span>
+        </div>`).join("")}
+    </div>`;
+  };
+  const byCat=master.categories.map((cat,i)=>({
+    label:cat, color:CAT_PALETTE[i%CAT_PALETTE.length],
+    count:active.filter(c=>c.category===cat).length,
+    amount:sum(active.filter(c=>c.category===cat),c=>num(c.orderAmount)),
+  })).filter(r=>r.count>0);
+  const byOwner=master.members.map(m=>({
+    label:m,
+    count:active.filter(c=>c.owner===m).length,
+    amount:sum(active.filter(c=>c.owner===m),c=>num(c.orderAmount)),
+    extra:`｜${sum(active.filter(c=>c.owner===m),c=>num(c.manday)).toFixed(1)}人日`,
+  })).filter(r=>r.count>0);
+  $("dashboardPanel").innerHTML=`
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+      ${kpi("進行中案件", `${active.length}件`, "")}
+      ${kpi("受注額合計(進行中)", fmtYen(orderTotal)||"¥0", "")}
+      ${kpi("未請求", fmtYen(unbilled)||"¥0", "受注済・請求前")}
+      ${kpi("請求済(入金待ち)", fmtYen(billed)||"¥0", "")}
+      ${kpi("入金済(累計)", fmtYen(paid)||"¥0", "完了含む全案件")}
+      ${kpi("今月実施", `${monthExec.length}件`, thisMonth)}
+    </div>
+    ${barTable("分類別(進行中)", byCat)}
+    ${barTable("担当別(進行中)", byOwner)}
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:10px;">今月の実施案件(${thisMonth})</h3>
+      ${monthExec.length===0? `<div style="color:#6B7A87; font-size:12px;">今月の実施予定はありません。</div>` : `
+      <table class="grid" style="margin-bottom:0;">
+        <tr><th>実施日</th><th>案件名</th><th>顧客</th><th>担当</th><th>ステータス</th><th>受注額</th></tr>
+        ${monthExec.sort((a,b)=>(a.execDate||"").localeCompare(b.execDate||"")).map(c=>`
+          <tr><td>${esc(c.execDate)}</td><td>${esc(c.name)}</td><td>${esc(c.customerName||"")}</td><td>${esc(c.owner)}</td><td>${esc(c.status)}</td><td style="text-align:right;">${fmtYen(c.orderAmount)}</td></tr>`).join("")}
+      </table>`}
+    </div>`;
 }
 
 /* ---------- コメント ---------- */
@@ -1168,6 +1476,18 @@ function renderMaster(){
     ${listRow("進捗ステータス(順序どおり)", master.statuses, "newStatus", "statuses", null)}
     ${listRow("繁忙度(軽い→重いの順)", master.busyLevels, "newBusy", "busyLevels", (i)=>BUSY_PALETTE[i%BUSY_PALETTE.length])}
     <div class="card">
+      <h3 style="font-weight:800; margin-bottom:10px;">顧客マスタ</h3>
+      <div id="customerList" style="display:grid; gap:6px; margin-bottom:10px;"></div>
+      <div style="display:grid; grid-template-columns:1.3fr 1fr 1fr 1.3fr auto; gap:6px;">
+        <input type="text" id="custName" placeholder="会社名(必須)">
+        <input type="text" id="custPerson" placeholder="担当者">
+        <input type="text" id="custPhone" placeholder="電話番号">
+        <input type="text" id="custNote" placeholder="メモ">
+        <button class="btn btn-primary" id="btnAddCustomer">追加</button>
+      </div>
+      <div style="font-size:11.5px; color:#6B7A87; margin-top:6px;">案件登録時に選択式で使えます(表記ゆれ防止)。削除しても既存案件の顧客名は残ります。</div>
+    </div>
+    <div class="card">
       <h3 style="font-weight:800; margin-bottom:10px;">週の人日上限(超過警告のしきい値)</h3>
       <input type="number" id="mandayLimit" value="${master.mandayLimit}" min="1" step="0.5" style="width:120px;">
     </div>
@@ -1204,6 +1524,35 @@ function renderMaster(){
     alert("パスワードを変更しました。全メンバーに共有してください。");
     $("newPw").value="";
   });
+  renderCustomerList();
+  $("btnAddCustomer").addEventListener("click", async ()=>{
+    const name=$("custName").value.trim();
+    if(!name){ alert("会社名を入力してください。"); return; }
+    await sb.from("customers").insert({name, contact_person:$("custPerson").value.trim(), phone:$("custPhone").value.trim(), note:$("custNote").value.trim()});
+    await logAction("顧客追加", name);
+    ["custName","custPerson","custPhone","custNote"].forEach(id=>$(id).value="");
+    await loadCustomers(); renderCustomerList();
+  });
+}
+async function renderCustomerList(){
+  await loadCustomers();
+  $("customerList").innerHTML = customers.length===0
+    ? `<div style="color:#6B7A87; font-size:12.5px;">まだ顧客が登録されていません。</div>`
+    : customers.map(c=>`
+      <div style="display:flex; align-items:center; gap:8px; border:1px solid #DCE0E3; border-radius:6px; padding:6px 10px; font-size:12.5px;">
+        <span style="font-weight:700; min-width:120px;">${esc(c.name)}</span>
+        <span style="color:#3D4F5E;">${esc(c.contact_person||"")}</span>
+        <span style="color:#3D4F5E;">${esc(c.phone||"")}</span>
+        <span style="color:#8A959E; flex:1;">${esc(c.note||"")}</span>
+        <button class="btn btn-small btn-secondary btn-danger" data-cust-del="${c.id}">削除</button>
+      </div>`).join("");
+  document.querySelectorAll("[data-cust-del]").forEach(b=>b.addEventListener("click",async ()=>{
+    const c=customers.find(x=>x.id==+b.dataset.custDel);
+    if(!confirm(`顧客「${c?c.name:""}」を削除しますか?\n(既存案件の顧客名は残ります)`)) return;
+    await sb.from("customers").delete().eq("id",+b.dataset.custDel);
+    await logAction("顧客削除", c?c.name:"");
+    await loadCustomers(); renderCustomerList();
+  }));
 }
 
 /* ---------- 設定 ---------- */
@@ -1315,9 +1664,13 @@ document.addEventListener("DOMContentLoaded", ()=>{
   $("btnCalendarImport").addEventListener("click", importCalendarWeek);
   $("btnGoogleCalendarImport").addEventListener("click", importGoogleCalendarWeek);
   $("icsFile").addEventListener("change", importICS);
-  $("btnAddCase").addEventListener("click", ()=>openCase(null));
+  $("btnAddCase").addEventListener("click", async ()=>{ await loadCustomers(); openCase(null); });
   $("btnCaseCancel").addEventListener("click", ()=>$("caseModal").classList.remove("show"));
   $("btnCaseSave").addEventListener("click", saveCase);
+  $("btnFileClose").addEventListener("click", ()=>$("fileModal").classList.remove("show"));
+  $("btnFileSelect").addEventListener("click", ()=>$("fileUploadInput").click());
+  $("fileUploadInput").addEventListener("change", (e)=>{ uploadFiles(e.target.files); e.target.value=""; });
+  $("btnHistoryClose").addEventListener("click", ()=>$("historyModal").classList.remove("show"));
   $("filterOwner").addEventListener("change", renderCases);
   $("showArchived").addEventListener("change", renderCases);
   $("btnPostAnn").addEventListener("click", postAnnouncement);
