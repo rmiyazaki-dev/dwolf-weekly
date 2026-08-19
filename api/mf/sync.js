@@ -50,7 +50,9 @@ module.exports = async function handler(req, res) {
     const [rawQuotes, rawBillings] = await Promise.all([
       mf.listRecent(accessToken, "quotes"),
       mf.listRecent(accessToken, "billings"),
-    ]);
+    ]).catch((e) => {
+      throw new Error(`quotes/billings fetch failed: ${e.message || e}`);
+    });
     let activeCases = await db.getActiveCases();
 
     for (const raw of rawQuotes) {
@@ -83,9 +85,7 @@ module.exports = async function handler(req, res) {
     for (const raw of rawBillings) {
       summary.billingsSeen++;
       const b = extractBillingFields(raw);
-      let target = null;
-      if (b.relatedQuoteId) target = await db.findCaseByMfId("mfQuoteId", b.relatedQuoteId);
-      if (!target) target = await db.findCaseByMfId("mfBillingId", b.mfId);
+      let target = await db.findCaseByMfId("mfBillingId", b.mfId);
       if (!target) {
         const candidates = findCandidates(activeCases, b.partnerName, b.amount, "mfBillingId");
         if (candidates.length === 1) target = candidates[0];
@@ -98,7 +98,6 @@ module.exports = async function handler(req, res) {
           partner_name: b.partnerName,
           amount: b.amount,
           issue_date: b.issueDate,
-          related_quote_mf_id: b.relatedQuoteId,
           raw,
         });
         summary.billingsQueued++;

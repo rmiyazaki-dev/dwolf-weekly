@@ -52,7 +52,7 @@ robots.txt も同リポジトリのルートに置いてあり、検索エンジ
 7. 会議モード: 繁忙度、応援要否、日報サマリー(編集可)
 8. 社長報告: A4印刷/PDF出力(週間スケジュール・案件・日報まとめ・決定事項)
 9. マスター管理: メンバー・分類・ステータス・繁忙度・顧客マスタ・共通パスワード変更。メンバー/分類/ステータス/繁忙度は**ドラッグ&ドロップ(＋▲▼ボタン)で並び替え可能**
-10. Money Forwardクラウド請求書 連携(v3.3・未セットアップ): MFの見積書作成→案件と自動突合(できなければ案件管理タブの「要確認リスト」で人が手動紐付け)、請求書発行/入金確認→案件の請求状況(billingStatus)のみ自動更新。設定タブに連携カードあり
+10. Money Forwardクラウド請求書 連携(v3.3・セットアップ済み/本番接続確認中): MFの見積書作成→案件と自動突合(できなければ案件管理タブの「要確認リスト」で人が手動紐付け)、請求書発行/入金確認→案件の請求状況(billingStatus)のみ自動更新。設定タブに連携カードあり
 
 ## v3.2で追加した仕様の要点
 - **決算期は6月末締め**。会計年度は7月開始〜翌年6月終了で、`FY_START_MONTH = 7` を変えれば決算月を変更できる
@@ -67,8 +67,8 @@ robots.txt も同リポジトリのルートに置いてあり、検索エンジ
 - マスターの並び替えは `master` JSONの配列順を直接入れ替えて`kv`に保存。ステータス順はカンバンの列順、メンバー順は週間ボード/会議モード/社長報告の行順にそのまま反映される
 - 案件の`paymentDate`(入金予定日)はDBスキーマ変更不要(`cases.data` JSONBに追加されるだけ)。**SQLの追加実行は不要**
 
-## Money Forwardクラウド請求書 連携(v3.3・要セットアップ)
-コードは実装・テスト済みだが、**本番で使うには下記のセットアップがまだ必要**(未実施)。
+## Money Forwardクラウド請求書 連携(v3.3)
+セットアップ(MF側アプリ登録・Vercel環境変数・SQL実行)は完了し、OAuth連携も成功。フィールド名・入金ステータスのコード値は実装当初は未確認だったが、公式APIクライアント実装([wywy-llc/mf-invoice-api](https://github.com/wywy-llc/mf-invoice-api))のソースで確認し修正済み。
 
 ### アーキテクチャ
 - index.html(ブラウザ)はMFのclient_secretに触れない。`api/mf/*.js`(Vercel Serverless Functions)がOAuth・ポーリング同期を担当する、このプロジェクト初のバックエンド
@@ -81,25 +81,24 @@ robots.txt も同リポジトリのルートに置いてあり、検索エンジ
 3. MFで入金確認 → **billingStatusのみ**「入金済」に自動更新。進捗ステータス・入金予定日(paymentDate)は変更しない(手入力データを壊さないため)
 
 ### ファイル構成
-- `lib/mf/fieldMap.js`: **MFのレスポンスJSONフィールド名を吸収する層。実データ未確認のため、ここに全集約**(`extractQuoteFields`/`extractBillingFields`/`normalizePartnerName`/`isPaid`/`amountsClose`)。本番接続後にフィールド名がズレていたら、このファイルだけ直せばよい設計
-- `lib/mf/mfClient.js`: MFのOAuth(認可URL生成・トークン交換・リフレッシュ)、quotes/billings一覧のページング取得
+- `lib/mf/fieldMap.js`: MFのレスポンスJSONフィールド名を吸収する層(`extractQuoteFields`/`extractBillingFields`/`normalizePartnerName`/`isPaid`/`amountsClose`)。フィールド名・`payment_status`のコード値(0=未設定 1=未入金 **2=入金済** 3=未払い 4=振込済)は公式クライアント実装で確認済み
+- `lib/mf/mfClient.js`: MFのOAuth(認可URL生成・トークン交換・リフレッシュ)、quotes/billings一覧のページング取得。一覧APIは`from`/`to`(期間)が必須パラメータ、レスポンスは`{data:[...], pagination:{...}}`形式。`range_key=updated_at`で直近60日以内に更新があったもの(新規作成・入金確認による変更含む)を取得
 - `lib/mf/supabaseAdmin.js`: `mf_tokens`専用、service_role key使用
 - `lib/mf/supabaseAnon.js`: `cases`/`case_history`/`audit_log`/`mf_review_queue`/`kv`用、anon key使用
 - `api/mf/authorize.js` → `callback.js` → `status.js`: OAuth連携フロー一式
-- `api/mf/sync.js`: 同期本体(突合・要確認キュー登録・billingStatus更新)。`Authorization: Bearer $CRON_SECRET`(Cron用)または`?manual=1`(手動ボタン用)で起動
-- `setup-mf.sql`: `mf_tokens`・`mf_review_queue`のCREATE TABLE(**Supabaseで未実行**)
+- `api/mf/sync.js`: 同期本体(突合・要確認キュー登録・billingStatus更新)。`Authorization: Bearer $CRON_SECRET`(Cron用)または`?manual=1`(手動ボタン用)で起動。請求書とMF見積書の直接の紐付けフィールドはAPI上存在しないため、billingも取引先名+金額でcaseと突合する(quote経由の紐付けは行わない)
+- `setup-mf.sql`: `mf_tokens`・`mf_review_queue`のCREATE TABLE(Supabaseで実行済み)
 
-### セットアップ手順(次回作業時にここから)
-1. MFクラウド請求書 → 歯車アイコン →「API連携β(開発者向け)」→ 新規作成。Redirect URI: `https://dwolf-weekly-app.vercel.app/api/mf/callback`、Scope: `mfc/invoice/data.read`。発行されたclient_id/secretを控える
-2. Vercelプロジェクトの環境変数(Production)に追加: `MF_CLIENT_ID` / `MF_CLIENT_SECRET` / `CRON_SECRET`(ランダム値、自分で生成) / `SUPABASE_URL` / `SUPABASE_ANON_KEY`(index.html内と同じ値を転記) / `SUPABASE_SERVICE_ROLE_KEY`(Supabase→Project Settings→API。**index.htmlには絶対に貼らない**)
-3. Supabase SQL Editorで`setup-mf.sql`を実行
-4. デプロイ後、設定タブ「連携する」→ MF側の同意画面で許可 → `mfCfgState`に事業者名が出れば成功
-5. 「今すぐ同期」を押して実データを取得。もし見積・請求の金額や取引先名が正しく取れていなければ、`lib/mf/fieldMap.js`のキー名を実際のレスポンスに合わせて修正して再デプロイ
+### セットアップ時のハマりどころ(次回同様の作業をする時のために記録)
+- MFの「事業者を選択」画面で対象の事業者(有限会社清水組)に「アプリ連携権限が必要です」と出た場合 → **アプリポータル→「ユーザー」→自分の名前をダブルクリック→編集→「アプリ連携」でクラウド請求書にチェック→保存**が必要(参考: [「権限」の設定方法](https://biz.moneyforward.com/support/app-portal/guide/g008.html))。アプリ自体は事業者ごとに別々に作られる点にも注意(切り替えセレクタで選択中の事業者に対して作成される)
+- VercelはHobbyプランのため、Cron Jobsは1日1回まで(1時間毎などにすると弾かれる)
+- Supabaseの新しいAPIキー体系(`sb_secret_...`)は、従来の`service_role`キー(JWT形式)と同じ用途で使える
+- Vercelの環境変数はダッシュボードで追加しただけでは既存デプロイに反映されない。**追加・変更のたびにRedeployが必要**
 
 ### 検証状況
-- `lib/mf/fieldMap.js`の正規化ロジック(全角半角統一等)、`api/mf/sync.js`の突合・要確認キュー登録・billingStatus更新ロジックは、fetchをモックしたNode統合テストで一通り確認済み(ローカルではMFの実APIには接続できないため)
+- `lib/mf/fieldMap.js`の正規化ロジック(全角半角統一等)、`api/mf/sync.js`の突合・要確認キュー登録・billingStatus更新ロジックは、公式APIクライアント実装で確認したレスポンス形式(`{data:[...], pagination:{...}}`)でモックしたNode統合テストで一通り確認済み
 - index.htmlの要確認リストUI・紐付け/見送り・設定タブの連携カードは、ローカルSupabaseスタブでのブラウザ実機テストで動作確認済み
-- OAuth疎通・実データでのフィールド名の正しさは、本番セットアップ後でないと確認できない(既知のリスクとして`fieldMap.js`に集約済み)
+- OAuth連携(client_id/secret発行・トークン交換・事業者選択)は本番で成功を確認済み。`/quotes`・`/billings`実データでの同期は、`from`/`to`必須パラメータ対応の修正後、次回「今すぐ同期」で最終確認予定
 
 ## 既知の未対応・今後の検討事項
 - セキュリティは共通パスワード方式のまま(Supabase Authへの切替は見送り中、必要になれば再検討)
