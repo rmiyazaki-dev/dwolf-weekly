@@ -187,6 +187,7 @@
         </div>
       </div>
       <div class="alert alert-info" style="font-size:12px;">案件は週をまたいで自動継続します。完了したら「完了」でアーカイブしてください。</div>
+      <div id="dashFilterBanner"></div>
       <div id="dueAlerts"></div>
       <div id="mfReviewQueue"></div>
       <div id="casesList"></div>
@@ -354,6 +355,7 @@ let settings = {};
 let announcements = [];
 let mfReviewQueue = [];
 let pendingMfLink = null;
+let dashboardCaseFilter = null; // {field, value, label} ダッシュボードの件数クリックで案件管理を絞り込む
 let commentCounts = {};
 let fileCounts = {};
 let monday = getMonday(new Date());
@@ -886,9 +888,20 @@ function renderCases(){
   const showArchived=$("showArchived").checked;
   renderDueAlerts();
   renderMfReviewQueue();
+  if(dashboardCaseFilter){
+    $("dashFilterBanner").innerHTML=`<div class="alert alert-info" style="display:flex; align-items:center; gap:8px;"><span>ダッシュボードからの絞り込み中: <b>${esc(dashboardCaseFilter.label)}</b></span><button class="btn btn-small btn-secondary" id="btnClearDashFilter" style="margin-left:auto;">絞り込み解除</button></div>`;
+    $("btnClearDashFilter").addEventListener("click", ()=>{ dashboardCaseFilter=null; renderCases(); });
+  }else{
+    $("dashFilterBanner").innerHTML="";
+  }
   const list=cases
     .filter(c=>showArchived? true : !c.archived)
     .filter(c=>sel.value==="全員"? true : c.owner===sel.value)
+    .filter(c=>{
+      if(!dashboardCaseFilter) return true;
+      const v=c[dashboardCaseFilter.field];
+      return dashboardCaseFilter.value===""? !v : v===dashboardCaseFilter.value;
+    })
     .sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
   $("casesList").innerHTML = list.length===0
     ? `<div class="card" style="text-align:center; color:#3D4F5E; border-style:dashed;">案件がありません。「＋ 案件追加」から登録してください。</div>`
@@ -1183,25 +1196,31 @@ function renderDashboard(){
       ${sub?`<div style="font-size:10.5px; color:#8A959E; margin-top:1px;">${sub}</div>`:""}
     </div>`;
   const maxBar=(rows)=>Math.max(1,...rows.map(r=>r.amount));
-  const barTable=(title, rows)=>{
+  const barTable=(title, rows, field)=>{
     const mx=maxBar(rows);
     return `
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:10px;">${title}</h3>
-      ${rows.length===0? `<div style="color:#6B7A87; font-size:12px;">対象データがありません。</div>` : rows.map(r=>`
-        <div style="display:flex; align-items:center; gap:10px; margin-bottom:7px;">
-          <span style="width:90px; font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(r.label)}</span>
+      ${rows.length===0? `<div style="color:#6B7A87; font-size:12px;">対象データがありません。</div>` : rows.map(r=>{
+        const clickable=!!field;
+        const dashAttr=clickable? `data-dash-field="${esc(field)}" data-dash-value="${r.label==="未分類"?"":esc(r.label)}" data-dash-label="${esc(r.label)}"`:"";
+        return `
+        <div ${dashAttr} style="display:flex; align-items:center; gap:10px; margin-bottom:7px; ${clickable?"cursor:pointer;":""}">
+          <span style="width:90px; font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; ${clickable?"text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px;":""}">${esc(r.label)}</span>
           <div style="flex:1; background:#F2F3F1; border-radius:4px; height:20px; position:relative;">
             <div style="width:${Math.round(r.amount/mx*100)}%; min-width:${r.amount>0?"3px":"0"}; background:${r.color||"#E8590C"}; height:100%; border-radius:4px;"></div>
           </div>
           <span style="width:150px; font-size:12px; text-align:right; white-space:nowrap;">${r.count}件${r.amount?`｜${fmtYen(r.amount)}`:""}${r.extra||""}</span>
-        </div>`).join("")}
+        </div>`;
+      }).join("")}
     </div>`;
   };
+  /* 分類別・営業担当別・フライト担当別は「実際に受注(orderAmount>0)している案件」のみを対象にする(見積のみの案件は含めない) */
+  const ordered=active.filter(c=>num(c.orderAmount)>0);
   const byCat=master.categories.map((cat,i)=>({
     label:cat, color:CAT_PALETTE[i%CAT_PALETTE.length],
-    count:active.filter(c=>c.category===cat).length,
-    amount:sum(active.filter(c=>c.category===cat),c=>num(c.orderAmount)),
+    count:ordered.filter(c=>c.category===cat).length,
+    amount:sum(ordered.filter(c=>c.category===cat),c=>num(c.orderAmount)),
   })).filter(r=>r.count>0);
   const byOwner=master.members.map(m=>({
     label:m,
@@ -1212,7 +1231,7 @@ function renderDashboard(){
   const byRole=(field)=>{
     const labels=[...master.members,"未分類"];
     return labels.map((m,i)=>{
-      const matched = m==="未分類"? active.filter(c=>!c[field]) : active.filter(c=>c[field]===m);
+      const matched = m==="未分類"? ordered.filter(c=>!c[field]) : ordered.filter(c=>c[field]===m);
       return {
         label:m,
         color: m==="未分類"? "#8A959E" : undefined,
@@ -1354,10 +1373,10 @@ function renderDashboard(){
       ${kpi("今月実施", `${monthExec.length}件`, thisMonth)}
     </div>
     ${fyPanel}
-    ${barTable("分類別(進行中)", byCat)}
-    ${barTable("担当別(進行中)", byOwner)}
-    ${barTable("営業担当別 受注額(進行中)", bySalesOwner)}
-    ${barTable("フライト担当別 売上合計(進行中)", byFlightOwner)}
+    ${barTable("分類別(進行中)", byCat, "category")}
+    ${barTable("担当別(進行中)", byOwner, "owner")}
+    ${barTable("営業担当別 受注額(進行中)", bySalesOwner, "salesOwner")}
+    ${barTable("フライト担当別 売上合計(進行中)", byFlightOwner, "flightOwner")}
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:10px;">今月の実施案件(${thisMonth})</h3>
       ${monthExec.length===0? `<div style="color:#6B7A87; font-size:12px;">今月の実施予定はありません。</div>` : `
@@ -1368,6 +1387,12 @@ function renderDashboard(){
       </table>`}
     </div>`;
   $("dashFYSelect").addEventListener("change", ()=>{ dashFY=+$("dashFYSelect").value; renderDashboard(); });
+  const fieldLabelJP={category:"分類", owner:"担当", salesOwner:"営業担当", flightOwner:"フライト担当"};
+  document.querySelectorAll("[data-dash-field]").forEach(el=>el.addEventListener("click", ()=>{
+    const field=el.dataset.dashField, value=el.dataset.dashValue, label=el.dataset.dashLabel;
+    dashboardCaseFilter={field, value, label:`${fieldLabelJP[field]||field}:${label}`};
+    switchTab("cases");
+  }));
 }
 
 /* ---------- コメント ---------- */
