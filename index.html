@@ -743,6 +743,8 @@ function renderDueAlerts(){
   $("dueAlerts").innerHTML=html;
 }
 /* ---------- Money Forward連携:要確認リスト ---------- */
+/* MFのdue_date等は "2026/07/21" 形式で来るため、<input type="date"> が要求するISO形式に正規化する */
+function mfNormDate(s){ return s? String(s).slice(0,10).replace(/\//g,"-") : ""; }
 let showSkippedMf=false;
 async function loadMfReviewQueue(){
   const {data,error}=await sb.from("mf_review_queue").select("*").in("status",["pending","skipped"]).order("id",{ascending:false});
@@ -812,13 +814,15 @@ function renderMfReviewQueue(){
     const c=cases.find(x=>x.id===caseId); if(!c) return;
     if(item.type==="quote"){
       c.mfQuoteId=item.mf_id; c.mfQuoteNumber=item.mf_number; if(item.amount) c.quoteAmount=String(item.amount);
-      if(item.issue_date) c.mfQuoteDate=item.issue_date;
+      if(item.issue_date) c.mfQuoteDate=mfNormDate(item.issue_date);
       c.status="見積提出";
     }else{
       c.mfBillingId=item.mf_id; if(item.amount) c.orderAmount=String(item.amount);
       c.status="請求書提出";
-      if(c.billingStatus!=="入金済") c.billingStatus="請求済";
-      const dueDate=item.raw?.due_date;
+      const ps=String(item.raw?.payment_status||"");
+      if(ps.includes("入金済")||ps.includes("振込済")) c.billingStatus="入金済";
+      else if(c.billingStatus!=="入金済") c.billingStatus="請求済";
+      const dueDate=mfNormDate(item.raw?.due_date);
       if(dueDate) c.paymentDate=dueDate;
     }
     c.mfLinkedAt=new Date().toISOString(); c.updatedAt=Date.now();
@@ -844,8 +848,9 @@ function renderMfReviewQueue(){
     }else{
       prefill.orderAmount=String(item.amount||"");
       prefill.status="請求書提出";
-      prefill.billingStatus="請求済";
-      prefill.paymentDate=item.raw?.due_date||"";
+      const ps=String(item.raw?.payment_status||"");
+      prefill.billingStatus=(ps.includes("入金済")||ps.includes("振込済"))? "入金済" : "請求済";
+      prefill.paymentDate=mfNormDate(item.raw?.due_date);
     }
     openCase(null, prefill);
   }));
