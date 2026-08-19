@@ -1978,6 +1978,7 @@ async function refreshMfStatus(){
     const r=await fetch("/api/mf/status");
     const j=await r.json();
     $("mfCfgState").textContent = j.connected ? `連携済み:${j.officeName||"(事業者名未取得)"}` : "未連携";
+    if(j.apiError){ $("mfSyncMsg").innerHTML=`<span style="color:#B54747;">API疎通エラー:${esc(j.apiError)}</span>`; }
   }catch(e){ $("mfCfgState").textContent="状態確認エラー"; }
 }
 
