@@ -7,6 +7,7 @@
   <title>D-WOLF 週次オペレーションボード</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.4/lib/msal-browser.min.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Noto Sans JP','Hiragino Kaku Gothic ProN','Yu Gothic Medium',sans-serif; background: #F2F3F1; color: #17242F; }
@@ -146,9 +147,11 @@
     <div class="section" data-section="board">
       <div class="section-header">
         <span class="section-num">01</span><h2 class="section-title">週間スケジュール(月〜金)</h2>
-        <div style="margin-left:auto;">
+        <div style="margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn btn-primary btn-small" id="btnCalendarImport">Outlookから自動取込</button>
+          <button class="btn btn-primary btn-small" id="btnGoogleCalendarImport">Googleカレンダーから自動取込</button>
           <input type="file" id="icsFile" accept=".ics,text/calendar" style="display:none">
-          <button class="btn btn-secondary btn-small" id="btnIcs">ICSファイル取込</button>
+          <button class="btn btn-secondary btn-small" id="btnIcs">ICSファイル取込(手動)</button>
         </div>
       </div>
       <div style="overflow-x:auto;"><table class="grid" id="scheduleTable"></table></div>
@@ -519,6 +522,96 @@ function addTodo(){
   renderTodos(); queueSave("week");
 }
 
+/* ---------- Outlookカレンダー自動取込 ---------- */
+async function calendarLogin(){
+  const scopes=[...GRAPH_SCOPES, "Calendars.Read"];
+  const app=getMsal();
+  let acct=app.getAllAccounts()[0]||null;
+  if(acct){
+    try{ const r=await app.acquireTokenSilent({scopes, account:acct}); graphToken=r.accessToken; return true; }catch(e){}
+  }
+  try{
+    const r=await app.loginPopup({scopes});
+    const r2=await app.acquireTokenSilent({scopes, account:r.account}).catch(()=>null);
+    graphToken=(r2&&r2.accessToken)||r.accessToken||null;
+    return !!graphToken;
+  }catch(e){ console.error(e); return false; }
+}
+async function graphGetTZ(url){
+  const r=await fetch(url,{headers:{Authorization:`Bearer ${graphToken}`, Prefer:'outlook.timezone="Tokyo Standard Time"'}});
+  if(!r.ok){ const t=await r.text(); throw new Error(`Graph ${r.status}:${t.slice(0,140)}`); }
+  return r.json();
+}
+async function importCalendarWeek(){
+  if(!teamsCfgOk()){ alert("設定タブでテナントID・クライアントIDを先に登録してください(Teams連携と共通です)。"); return; }
+  const ok=await calendarLogin();
+  if(!ok){ alert("Microsoftサインインが必要です。もう一度ボタンを押してください。"); return; }
+  const start=new Date(monday); const end=new Date(monday); end.setDate(end.getDate()+5);
+  const url=`https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${encodeURIComponent(start.toISOString())}&endDateTime=${encodeURIComponent(end.toISOString())}&$orderby=start/dateTime&$top=100`;
+  try{
+    const j=await graphGetTZ(url);
+    const events=j.value||[];
+    if(!events.length){ alert("この週の予定は見つかりませんでした。"); return; }
+    let count=0;
+    events.forEach(ev=>{
+      const dt=new Date(ev.start.dateTime);
+      const dayIdx=Math.round((new Date(dt.getFullYear(),dt.getMonth(),dt.getDate()) - new Date(monday.getFullYear(),monday.getMonth(),monday.getDate())) / 86400000);
+      if(dayIdx<0||dayIdx>4) return;
+      const timeLabel=ev.isAllDay? "終日" : `${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
+      const label=`${timeLabel} ${ev.subject||"(件名なし)"}`;
+      const cell=week.schedule[me][dayIdx];
+      if(!cell.includes(label)){ week.schedule[me][dayIdx]=cell? cell+"\n"+label : label; count++; }
+    });
+    renderBoard(); queueSave("week");
+    alert(`${count}件の予定を取り込みました(${events.length}件中、重複除く)。`);
+  }catch(e){ alert("取込エラー:"+(e.message||e)); }
+}
+
+/* ---------- Googleカレンダー自動取込 ---------- */
+let googleToken=null;
+function ensureGsi(){ return !!(window.google && google.accounts && google.accounts.oauth2); }
+function googleLogin(){
+  return new Promise((resolve)=>{
+    if(!ensureGsi()){ resolve(false); return; }
+    try{
+      const client=google.accounts.oauth2.initTokenClient({
+        client_id: settings.googleClientId,
+        scope: "https://www.googleapis.com/auth/calendar.readonly",
+        callback: (resp)=>{ resolve(!!(resp&&resp.access_token) && (googleToken=resp.access_token, true)); }
+      });
+      client.requestAccessToken({prompt:""});
+    }catch(e){ console.error(e); resolve(false); }
+  });
+}
+async function importGoogleCalendarWeek(){
+  if(!settings.googleClientId){ alert("設定タブでGoogleクライアントIDを登録してください。"); return; }
+  if(!ensureGsi()){ alert("Google連携の読み込みに失敗しました。少し待ってページを再読み込みしてください。"); return; }
+  const ok=await googleLogin();
+  if(!ok){ alert("Googleサインインが必要です。もう一度ボタンを押してください(ポップアップブロックにご注意ください)。"); return; }
+  const start=new Date(monday); const end=new Date(monday); end.setDate(end.getDate()+5);
+  const url=`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(start.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=100`;
+  try{
+    const r=await fetch(url,{headers:{Authorization:`Bearer ${googleToken}`}});
+    if(!r.ok){ const t=await r.text(); throw new Error(`Google ${r.status}:${t.slice(0,140)}`); }
+    const j=await r.json();
+    const events=j.items||[];
+    if(!events.length){ alert("この週の予定は見つかりませんでした。"); return; }
+    let count=0;
+    events.forEach(ev=>{
+      const isAllDay=!ev.start?.dateTime;
+      const dt=new Date(ev.start?.dateTime || ev.start?.date);
+      const dayIdx=Math.round((new Date(dt.getFullYear(),dt.getMonth(),dt.getDate()) - new Date(monday.getFullYear(),monday.getMonth(),monday.getDate())) / 86400000);
+      if(dayIdx<0||dayIdx>4) return;
+      const timeLabel=isAllDay? "終日" : `${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
+      const label=`${timeLabel} ${ev.summary||"(件名なし)"}`;
+      const cell=week.schedule[me][dayIdx];
+      if(!cell.includes(label)){ week.schedule[me][dayIdx]=cell? cell+"\n"+label : label; count++; }
+    });
+    renderBoard(); queueSave("week");
+    alert(`${count}件の予定を取り込みました(${events.length}件中、重複除く)。`);
+  }catch(e){ alert("取込エラー:"+(e.message||e)); }
+}
+
 /* ---------- ICS ---------- */
 function parseICS(text){
   const lines=text.split(/\r?\n/); const unfolded=[];
@@ -738,10 +831,11 @@ async function renderAudit(){
 let msalApp=null, graphToken=null;
 const GRAPH_SCOPES=["ChannelMessage.Read.All","Team.ReadBasic.All","Channel.ReadBasic.All"];
 function teamsCfgOk(){ return !!(settings.teamsTenantId && settings.teamsClientId); }
+const APP_REDIRECT_URI = "https://dwolf-weekly-app.vercel.app";
 function getMsal(){
   if(!msalApp){
     msalApp=new msal.PublicClientApplication({
-      auth:{ clientId:settings.teamsClientId, authority:`https://login.microsoftonline.com/${settings.teamsTenantId}`, redirectUri: location.origin + location.pathname },
+      auth:{ clientId:settings.teamsClientId, authority:`https://login.microsoftonline.com/${settings.teamsTenantId}`, redirectUri: APP_REDIRECT_URI },
       cache:{ cacheLocation:"localStorage" }
     });
   }
@@ -1138,6 +1232,7 @@ function renderSettings(){
         <button class="btn btn-primary" id="btnTeamsSavePick" style="margin-top:10px;">この設定で保存</button>
       </div>
       <div style="font-size:11.5px; color:#6B7A87; margin-top:8px;">取込対象:本文が【D-WOLF工事日誌_氏名】形式の投稿。氏名がマスターのメンバー名と一致すると人別に紐付きます(スペース有無は無視)。</div>
+      <div style="font-size:11.5px; color:#6B7A87; margin-top:4px;">※上記のテナントID・クライアントIDは、週間ボードの「Outlookカレンダーから自動取込」ボタンでも共通利用します(各自のOutlook予定表から直接取込。初回のみ本人のMicrosoftアカウントでサインインが必要です)。</div>
     </div>
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:8px;">(任意)アプリ→Teams投稿(Webhook URL)</h3>
@@ -1150,7 +1245,18 @@ function renderSettings(){
       <div style="font-size:11.5px; color:#6B7A87; margin-top:6px;">貼り付けると自動保存。日報タブから送信すると、このチャネルに自動投稿されます。</div>
     </div>
     <div class="card">
-      <h3 style="font-weight:800; margin-bottom:8px;">GoogleカレンダーICS URL(メモ)</h3>
+      <h3 style="font-weight:800; margin-bottom:8px;">Googleカレンダー自動連携設定</h3>
+      <ol style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px; margin-bottom:10px;">
+        <li>Google Cloud Console でプロジェクトを作成し「Google Calendar API」を有効化(手順書参照)</li>
+        <li>「OAuth 2.0 クライアントID」(ウェブアプリケーション)を作成し、承認済みJavaScript生成元に
+          <code>https://dwolf-weekly-app.vercel.app</code> を登録</li>
+        <li>発行された クライアントID を下に貼り付け(自動保存)</li>
+      </ol>
+      <label style="font-size:12px; font-weight:700;">GoogleクライアントID<input type="text" id="googleClientId" class="w100" value="${esc(settings.googleClientId||"")}" placeholder="xxxxxxxxxx.apps.googleusercontent.com" style="margin-top:4px;"></label>
+      <div style="font-size:11.5px; color:#6B7A87; margin-top:8px;">週間ボードの「Googleカレンダーから自動取込」ボタンで使用します。各自がボタンを押した際、本人のGoogleアカウントでのサインインが必要です(他人の予定は取れません)。</div>
+    </div>
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:8px;">GoogleカレンダーICS URL(手動取込用・任意)</h3>
       <ol style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px; margin-bottom:10px;">
         <li>PCのGoogleカレンダー → 設定 → マイカレンダー → 自分のカレンダー</li>
         <li>「カレンダーの統合」の「iCal形式の公開URL」をコピーして下に控える</li>
@@ -1174,6 +1280,7 @@ function renderSettings(){
       </ul>
     </div>`;
   $("teamsWebhook").addEventListener("change",()=>{ settings.teamsWebhook=$("teamsWebhook").value.trim(); queueSave("settings"); });
+  $("googleClientId").addEventListener("change",()=>{ settings.googleClientId=$("googleClientId").value.trim(); queueSave("settings"); });
   $("teamsTenantId").addEventListener("change",()=>{ settings.teamsTenantId=$("teamsTenantId").value.trim(); msalApp=null; queueSave("settings"); });
   $("teamsClientId").addEventListener("change",()=>{ settings.teamsClientId=$("teamsClientId").value.trim(); msalApp=null; queueSave("settings"); });
   $("btnTeamsConnect").addEventListener("click", teamsConnectPick);
@@ -1205,6 +1312,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
   $("btnAddTodo").addEventListener("click", addTodo);
   $("todoInput").addEventListener("keydown", e=>{ if(e.key==="Enter") addTodo(); });
   $("btnIcs").addEventListener("click", ()=>$("icsFile").click());
+  $("btnCalendarImport").addEventListener("click", importCalendarWeek);
+  $("btnGoogleCalendarImport").addEventListener("click", importGoogleCalendarWeek);
   $("icsFile").addEventListener("change", importICS);
   $("btnAddCase").addEventListener("click", ()=>openCase(null));
   $("btnCaseCancel").addEventListener("click", ()=>$("caseModal").classList.remove("show"));
