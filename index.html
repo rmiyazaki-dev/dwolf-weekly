@@ -772,6 +772,7 @@ function mfReviewItemRow(item){
       <span class="chip" style="background:#17242F14; border:1px solid #17242F33;">${item.type==="quote"?"見積書":"請求書"}</span>
       ${skipped?'<span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3; color:#6B7A87;">見送り済み</span>':""}
       <span style="font-weight:700;">${esc(item.partner_name||"(取引先不明)")}</span>
+      ${item.raw?.title? `<span style="color:#17242F;">${esc(item.raw.title)}</span>`:""}
       <span style="color:#3D4F5E;">${item.amount?fmtYen(item.amount):""}${item.mf_number?`　No.${esc(item.mf_number)}`:""}${item.issue_date?`　${esc(item.issue_date)}`:""}</span>
       <div style="margin-left:auto; display:flex; gap:4px;">
         <input type="text" data-mf-search="${item.id}" placeholder="案件名・顧客で検索" style="width:130px; font-size:12px;">
@@ -839,7 +840,7 @@ function renderMfReviewQueue(){
     pendingMfLink={itemId:item.id, type:item.type, mf_id:item.mf_id, mf_number:item.mf_number, issue_date:item.issue_date};
     const prefill={
       customerName: item.partner_name||"",
-      name: item.partner_name? `${item.partner_name}` : "",
+      name: item.raw?.title || item.partner_name || "",
       note: `MF${item.type==="quote"?"見積":"請求"} No.${item.mf_number||item.mf_id}より作成`,
     };
     if(item.type==="quote"){
