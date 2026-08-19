@@ -83,6 +83,14 @@
     .audit-row { font-size: 12px; color: #3D4F5E; padding: 5px 2px; border-bottom: 1px solid #EEE; display: flex; gap: 8px; flex-wrap: wrap; }
     .audit-time { color: #8A959E; min-width: 105px; }
 
+    .dnd-item { display: flex; align-items: center; gap: 8px; border: 1px solid #DCE0E3; border-radius: 6px; padding: 6px 10px; background: #fff; }
+    .dnd-item.dragging { opacity: 0.4; }
+    .dnd-item.dnd-over { border-color: #E8590C; background: #FFF7F2; }
+    .drag-handle { cursor: grab; color: #9AA4AC; font-size: 15px; line-height: 1; user-select: none; padding: 0 2px; }
+    .dnd-item:active .drag-handle { cursor: grabbing; }
+    .btn-move { padding: 1px 7px; font-size: 11px; line-height: 1.5; }
+    .btn-move[disabled] { opacity: 0.3; cursor: default; }
+
     .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 70vh; text-align: center; }
     .login-box { max-width: 420px; width: 100%; }
     .member-btn { width: 100%; padding: 13px; font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -755,7 +763,7 @@ function renderCases(){
     : list.map(cs=>{
       const d=dueInfo(cs);
       const dueChip=cs.dueDate? `<span class="chip" style="${d? (d.level==="over"?"background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;":"background:#FFF8E6; border:1px solid #E5C56A; color:#7A5B00;") : "background:#F2F3F1; border:1px solid #DCE0E3; color:#3D4F5E;"}">納期 ${esc(cs.dueDate)}${d?`・${d.label}`:""}</span>` : "";
-      const amounts=[cs.quoteAmount?`見積 ${fmtYen(cs.quoteAmount)}`:"", cs.orderAmount?`受注 ${fmtYen(cs.orderAmount)}`:"", cs.billingStatus&&cs.billingStatus!=="未請求"?esc(cs.billingStatus):""].filter(Boolean).join("　");
+      const amounts=[cs.quoteAmount?`見積 ${fmtYen(cs.quoteAmount)}`:"", cs.orderAmount?`受注 ${fmtYen(cs.orderAmount)}`:"", cs.billingStatus&&cs.billingStatus!=="未請求"?esc(cs.billingStatus):"", cs.paymentDate?`入金予定 ${esc(cs.paymentDate)}`:""].filter(Boolean).join("　");
       return `
       <div class="card" style="border-left:4px solid ${catColor(cs.category)}; opacity:${cs.archived?0.55:1};">
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -792,7 +800,7 @@ function renderCases(){
 function openCase(id){
   editingCase = id==null
     ? {id:null, owner:me, category:master.categories[0], name:"", status:master.statuses[0], manday:"", nextPlan:"", note:"", archived:false,
-       customerId:"", customerName:"", quoteAmount:"", orderAmount:"", billingStatus:BILLING_STATUSES[0], execDate:"", dueDate:""}
+       customerId:"", customerName:"", quoteAmount:"", orderAmount:"", billingStatus:BILLING_STATUSES[0], execDate:"", dueDate:"", paymentDate:""}
     : structuredClone(cases.find(x=>x.id===id));
   $("caseModalTitle").textContent=editingCase.id? "案件を編集" : "案件を追加";
   const opt=(arr,cur)=>arr.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("");
@@ -819,7 +827,10 @@ function openCase(id){
       <label style="font-size:12px; font-weight:700;">見積額(円)<input type="number" id="cfQuote" class="w100" value="${esc(editingCase.quoteAmount||"")}" min="0" step="1000" style="margin-top:4px;"></label>
       <label style="font-size:12px; font-weight:700;">受注額(円)<input type="number" id="cfOrder" class="w100" value="${esc(editingCase.orderAmount||"")}" min="0" step="1000" style="margin-top:4px;"></label>
     </div>
-    <label style="font-size:12px; font-weight:700;">請求状況<select id="cfBilling" class="w100" style="margin-top:4px;">${opt(BILLING_STATUSES, editingCase.billingStatus||BILLING_STATUSES[0])}</select></label>
+    <div class="modal-cols">
+      <label style="font-size:12px; font-weight:700;">請求状況<select id="cfBilling" class="w100" style="margin-top:4px;">${opt(BILLING_STATUSES, editingCase.billingStatus||BILLING_STATUSES[0])}</select></label>
+      <label style="font-size:12px; font-weight:700;">入金予定日<input type="date" id="cfPayDate" class="w100" value="${esc(editingCase.paymentDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7A87; font-size:11px;">売上予測の計上月になります</span></label>
+    </div>
     <label style="font-size:12px; font-weight:700;">来週の予定<input type="text" id="cfNext" class="w100" value="${esc(editingCase.nextPlan)}" style="margin-top:4px;"></label>
     <label style="font-size:12px; font-weight:700;">備考<input type="text" id="cfNote" class="w100" value="${esc(editingCase.note)}" style="margin-top:4px;"></label>`;
   $("caseModal").classList.add("show");
@@ -838,6 +849,7 @@ async function saveCase(){
   editingCase.quoteAmount=$("cfQuote").value;
   editingCase.orderAmount=$("cfOrder").value;
   editingCase.billingStatus=$("cfBilling").value;
+  editingCase.paymentDate=$("cfPayDate").value;
   const custSel=$("cfCustomer").value;
   if(custSel){
     editingCase.customerId=custSel;
@@ -861,6 +873,7 @@ async function saveCase(){
       if(String(before.billingStatus||"")!==String(editingCase.billingStatus||"")) await logCaseHistory(editingCase.id, "請求状況変更", `${before.billingStatus||"未請求"} → ${editingCase.billingStatus}`);
       if(String(before.orderAmount||"")!==String(editingCase.orderAmount||"")) await logCaseHistory(editingCase.id, "受注額変更", `${fmtYen(before.orderAmount)||"なし"} → ${fmtYen(editingCase.orderAmount)||"なし"}`);
       if(String(before.dueDate||"")!==String(editingCase.dueDate||"")) await logCaseHistory(editingCase.id, "納期変更", `${before.dueDate||"未設定"} → ${editingCase.dueDate||"未設定"}`);
+      if(String(before.paymentDate||"")!==String(editingCase.paymentDate||"")) await logCaseHistory(editingCase.id, "入金予定日変更", `${before.paymentDate||"未設定"} → ${editingCase.paymentDate||"未設定"}`);
     }
   }
   $("caseModal").classList.remove("show");
@@ -979,7 +992,30 @@ function renderKanban(){
   }));
 }
 
+/* ---------- 会計年度(6月末決算=7月開始) ---------- */
+const FY_START_MONTH = 7;
+function fyOf(dateStr){
+  if(!dateStr) return null;
+  const y=+String(dateStr).slice(0,4), m=+String(dateStr).slice(5,7);
+  if(!y||!m) return null;
+  return m>=FY_START_MONTH? y : y-1;
+}
+function currentFY(){ const d=new Date(); return (d.getMonth()+1)>=FY_START_MONTH? d.getFullYear() : d.getFullYear()-1; }
+function fyLabel(fy){ return `${fy}年${FY_START_MONTH}月〜${fy+1}年${FY_START_MONTH-1}月期`; }
+function fyMonths(fy){
+  const out=[];
+  for(let i=0;i<12;i++){
+    const mo=FY_START_MONTH+i;
+    const y=fy+Math.floor((mo-1)/12), m=((mo-1)%12)+1;
+    out.push({ ym:`${y}-${String(m).padStart(2,"0")}`, label:`${m}月`, year:y, month:m });
+  }
+  return out;
+}
+/* 受注の計上基準日:実施日 →(なければ)納期 →(なければ)入金予定日 */
+function orderBaseDate(c){ return c.execDate || c.dueDate || c.paymentDate || ""; }
+
 /* ---------- ダッシュボード ---------- */
+let dashFY = null;
 function renderDashboard(){
   const active=cases.filter(c=>!c.archived);
   const num=(v)=>parseFloat(v)||0;
@@ -1023,6 +1059,126 @@ function renderDashboard(){
     amount:sum(active.filter(c=>c.owner===m),c=>num(c.orderAmount)),
     extra:`｜${sum(active.filter(c=>c.owner===m),c=>num(c.manday)).toFixed(1)}人日`,
   })).filter(r=>r.count>0);
+
+  /* ===== 期(6月末決算)・月次の受注/売上予測 ===== */
+  const fySet=new Set([currentFY()]);
+  cases.forEach(c=>{
+    [fyOf(orderBaseDate(c)), fyOf(c.paymentDate)].forEach(f=>{ if(f!=null) fySet.add(f); });
+  });
+  const fyList=[...fySet].sort((a,b)=>a-b);
+  if(dashFY==null || !fyList.includes(dashFY)) dashFY=currentFY();
+  const nowYm=`${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`;
+
+  const fyStats=(fy)=>{
+    const ordered=cases.filter(c=>num(c.orderAmount)>0 && fyOf(orderBaseDate(c))===fy);
+    const pays=cases.filter(c=>num(c.orderAmount)>0 && fyOf(c.paymentDate)===fy);
+    return {
+      fy,
+      orderCount:ordered.length,
+      orderAmt:sum(ordered,c=>num(c.orderAmount)),
+      quoteAmt:sum(cases.filter(c=>!c.archived && num(c.orderAmount)===0 && num(c.quoteAmount)>0 && fyOf(orderBaseDate(c))===fy), c=>num(c.quoteAmount)),
+      payAmt:sum(pays,c=>num(c.orderAmount)),
+      paidAmt:sum(pays.filter(c=>c.billingStatus==="入金済"),c=>num(c.orderAmount)),
+      noPayDate:sum(ordered.filter(c=>!c.paymentDate),c=>num(c.orderAmount)),
+      noPayCount:ordered.filter(c=>!c.paymentDate).length,
+    };
+  };
+  const cur=fyStats(dashFY);
+  const prev=fyStats(dashFY-1);
+  const diffTxt=(a,b)=>{
+    if(!b) return "";
+    const r=Math.round((a-b)/b*100);
+    return `前期比 ${r>=0?"+":""}${r}%`;
+  };
+  const months=fyMonths(dashFY);
+  const monthRows=months.map(mo=>{
+    const ordered=cases.filter(c=>num(c.orderAmount)>0 && (orderBaseDate(c)||"").startsWith(mo.ym));
+    const quoted=cases.filter(c=>!c.archived && num(c.orderAmount)===0 && num(c.quoteAmount)>0 && (orderBaseDate(c)||"").startsWith(mo.ym));
+    const pays=cases.filter(c=>num(c.orderAmount)>0 && (c.paymentDate||"").startsWith(mo.ym));
+    const payAmt=sum(pays,c=>num(c.orderAmount));
+    const paidAmt=sum(pays.filter(c=>c.billingStatus==="入金済"),c=>num(c.orderAmount));
+    return {...mo, orderCount:ordered.length, orderAmt:sum(ordered,c=>num(c.orderAmount)),
+      quoteAmt:sum(quoted,c=>num(c.quoteAmount)), payAmt, paidAmt, restAmt:payAmt-paidAmt};
+  });
+  const mMax=Math.max(1,...monthRows.map(r=>Math.max(r.orderAmt, r.payAmt)));
+  const zero=(v)=>v? fmtYen(v) : `<span style="color:#C3C9CE;">―</span>`;
+  const fyOptions=fyList.map(f=>`<option value="${f}" ${f===dashFY?"selected":""}>${fyLabel(f)}${f===currentFY()?"(今期)":""}</option>`).join("");
+
+  const fyPanel=`
+    <div class="card">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+        <h3 style="font-weight:800;">期・月次の受注/売上(予測)</h3>
+        <select id="dashFYSelect" style="margin-left:auto;">${fyOptions}</select>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+        ${kpi("受注(期計)", fmtYen(cur.orderAmt)||"¥0", `${cur.orderCount}件　${diffTxt(cur.orderAmt, prev.orderAmt)}`)}
+        ${kpi("見込(見積・未受注)", fmtYen(cur.quoteAmt)||"¥0", "進行中で受注額未入力")}
+        ${kpi("売上予測(入金予定計)", fmtYen(cur.payAmt)||"¥0", diffTxt(cur.payAmt, prev.payAmt))}
+        ${kpi("入金済(実績)", fmtYen(cur.paidAmt)||"¥0", `達成率 ${cur.payAmt? Math.round(cur.paidAmt/cur.payAmt*100):0}%`)}
+        ${kpi("入金待ち残", fmtYen(cur.payAmt-cur.paidAmt)||"¥0", "予定日ベース")}
+      </div>
+      ${cur.noPayCount? `<div class="alert alert-warning" style="font-size:12px;">入金予定日が未設定の受注が ${cur.noPayCount}件(${fmtYen(cur.noPayDate)})あります。月次の売上予測に含まれていません。案件管理から入金予定日を入力してください。</div>`:""}
+      <div style="overflow-x:auto;">
+      <table class="grid" style="margin-bottom:8px;">
+        <tr><th>月</th><th style="text-align:right;">受注件数</th><th style="text-align:right;">受注額</th><th style="text-align:right;">見込(見積)</th><th style="text-align:right;">入金予定</th><th style="text-align:right;">入金済</th><th style="text-align:right;">未入金</th><th style="width:150px;">受注/入金予定</th></tr>
+        ${monthRows.map(r=>`
+          <tr style="background:${r.ym===nowYm?"#FFF0E6":""};">
+            <td style="font-weight:${r.ym===nowYm?800:600}; white-space:nowrap;">${r.year}/${r.label}</td>
+            <td style="text-align:right;">${r.orderCount||`<span style="color:#C3C9CE;">―</span>`}</td>
+            <td style="text-align:right; font-weight:700;">${zero(r.orderAmt)}</td>
+            <td style="text-align:right; color:#6B7A87;">${zero(r.quoteAmt)}</td>
+            <td style="text-align:right;">${zero(r.payAmt)}</td>
+            <td style="text-align:right; color:#2F6A4F;">${zero(r.paidAmt)}</td>
+            <td style="text-align:right; color:${r.restAmt>0?"#B34608":"#8A959E"};">${zero(r.restAmt)}</td>
+            <td>
+              <div style="background:#F2F3F1; border-radius:3px; height:9px; margin-bottom:3px;"><div style="width:${Math.round(r.orderAmt/mMax*100)}%; background:#E8590C; height:100%; border-radius:3px;"></div></div>
+              <div style="background:#F2F3F1; border-radius:3px; height:9px;"><div style="width:${Math.round(r.payAmt/mMax*100)}%; background:#2F855A; height:100%; border-radius:3px;"></div></div>
+            </td>
+          </tr>`).join("")}
+        <tr style="background:#EEF1F3; font-weight:800;">
+          <td>期 合計</td>
+          <td style="text-align:right;">${cur.orderCount}</td>
+          <td style="text-align:right;">${zero(cur.orderAmt)}</td>
+          <td style="text-align:right;">${zero(cur.quoteAmt)}</td>
+          <td style="text-align:right;">${zero(cur.payAmt)}</td>
+          <td style="text-align:right;">${zero(cur.paidAmt)}</td>
+          <td style="text-align:right;">${zero(cur.payAmt-cur.paidAmt)}</td>
+          <td></td>
+        </tr>
+      </table>
+      </div>
+      <div style="font-size:11.5px; color:#6B7A87; line-height:1.7;">
+        <span style="display:inline-block; width:10px; height:9px; background:#E8590C; border-radius:2px;"></span> 受注額(実施日ベース／実施日がなければ納期・入金予定日で代用)
+        <span style="display:inline-block; width:10px; height:9px; background:#2F855A; border-radius:2px;"></span> 入金予定額(入金予定日ベース)<br>
+        完了(アーカイブ)済の案件も金額集計に含みます。決算期は6月末締め(7月〜翌6月)で集計しています。
+      </div>
+    </div>
+    ${(()=>{
+      const rows=fyList.map(f=>fyStats(f));
+      const mx=Math.max(1,...rows.map(r=>Math.max(r.orderAmt,r.payAmt)));
+      return `
+      <div class="card">
+        <h3 style="font-weight:800; margin-bottom:10px;">期別サマリー(全期)</h3>
+        <div style="overflow-x:auto;">
+        <table class="grid" style="margin-bottom:0;">
+          <tr><th>期</th><th style="text-align:right;">受注件数</th><th style="text-align:right;">受注額</th><th style="text-align:right;">入金予定</th><th style="text-align:right;">入金済</th><th style="width:160px;">受注/入金予定</th></tr>
+          ${rows.map(r=>`
+            <tr style="background:${r.fy===dashFY?"#FFF0E6":""};">
+              <td style="white-space:nowrap; font-weight:${r.fy===dashFY?800:600};">${fyLabel(r.fy)}${r.fy===currentFY()?"(今期)":""}</td>
+              <td style="text-align:right;">${r.orderCount||`<span style="color:#C3C9CE;">―</span>`}</td>
+              <td style="text-align:right; font-weight:700;">${zero(r.orderAmt)}</td>
+              <td style="text-align:right;">${zero(r.payAmt)}</td>
+              <td style="text-align:right; color:#2F6A4F;">${zero(r.paidAmt)}</td>
+              <td>
+                <div style="background:#F2F3F1; border-radius:3px; height:9px; margin-bottom:3px;"><div style="width:${Math.round(r.orderAmt/mx*100)}%; background:#E8590C; height:100%; border-radius:3px;"></div></div>
+                <div style="background:#F2F3F1; border-radius:3px; height:9px;"><div style="width:${Math.round(r.payAmt/mx*100)}%; background:#2F855A; height:100%; border-radius:3px;"></div></div>
+              </td>
+            </tr>`).join("")}
+        </table>
+        </div>
+      </div>`;
+    })()}`;
+
   $("dashboardPanel").innerHTML=`
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
       ${kpi("進行中案件", `${active.length}件`, "")}
@@ -1032,6 +1188,7 @@ function renderDashboard(){
       ${kpi("入金済(累計)", fmtYen(paid)||"¥0", "完了含む全案件")}
       ${kpi("今月実施", `${monthExec.length}件`, thisMonth)}
     </div>
+    ${fyPanel}
     ${barTable("分類別(進行中)", byCat)}
     ${barTable("担当別(進行中)", byOwner)}
     <div class="card">
@@ -1043,6 +1200,7 @@ function renderDashboard(){
           <tr><td>${esc(c.execDate)}</td><td>${esc(c.name)}</td><td>${esc(c.customerName||"")}</td><td>${esc(c.owner)}</td><td>${esc(c.status)}</td><td style="text-align:right;">${fmtYen(c.orderAmount)}</td></tr>`).join("")}
       </table>`}
     </div>`;
+  $("dashFYSelect").addEventListener("change", ()=>{ dashFY=+$("dashFYSelect").value; renderDashboard(); });
 }
 
 /* ---------- コメント ---------- */
@@ -1484,15 +1642,68 @@ function renderReport(){
 }
 
 /* ---------- マスター管理 ---------- */
+const MASTER_FIELD_LABELS={ members:"メンバー", categories:"案件分類", statuses:"進捗ステータス", busyLevels:"繁忙度" };
+async function moveMasterItem(field, from, to){
+  const arr=master[field];
+  if(!Array.isArray(arr)) return;
+  if(from===to || from<0 || from>=arr.length || to<0 || to>=arr.length) return;
+  const [item]=arr.splice(from,1);
+  arr.splice(to,0,item);
+  await kvSet("master", master);
+  await logAction("マスター変更", `${MASTER_FIELD_LABELS[field]||field}の並び順を変更(${item} → ${to+1}番目)`);
+  renderMaster();
+  setStatus("並び順を保存しました");
+}
+function bindMasterDnd(){
+  let dragField=null, dragIndex=null;
+  document.querySelectorAll(".dnd-item").forEach(el=>{
+    const field=el.dataset.dndField, index=+el.dataset.dndIndex;
+    el.addEventListener("dragstart", (e)=>{
+      dragField=field; dragIndex=index;
+      el.classList.add("dragging");
+      e.dataTransfer.effectAllowed="move";
+      try{ e.dataTransfer.setData("text/plain", `${field}|${index}`); }catch(_){}
+    });
+    el.addEventListener("dragend", ()=>{
+      el.classList.remove("dragging");
+      document.querySelectorAll(".dnd-over").forEach(x=>x.classList.remove("dnd-over"));
+      dragField=null; dragIndex=null;
+    });
+    el.addEventListener("dragover", (e)=>{
+      if(dragField!==field || dragIndex===index) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect="move";
+      el.classList.add("dnd-over");
+    });
+    el.addEventListener("dragleave", ()=>el.classList.remove("dnd-over"));
+    el.addEventListener("drop", async (e)=>{
+      e.preventDefault();
+      el.classList.remove("dnd-over");
+      if(dragField!==field) return;
+      const from=dragIndex;
+      dragField=null; dragIndex=null;
+      await moveMasterItem(field, from, index);
+    });
+  });
+  document.querySelectorAll("[data-mv]").forEach(b=>b.addEventListener("click", async ()=>{
+    const [field,i,dir]=b.dataset.mv.split("|");
+    await moveMasterItem(field, +i, +i + +dir);
+  }));
+}
 function renderMaster(){
   const listRow=(label, items, addId, removePrefix, colorFn)=>`
     <div class="card">
-      <h3 style="font-weight:800; margin-bottom:10px;">${label}</h3>
+      <h3 style="font-weight:800; margin-bottom:4px;">${label}</h3>
+      <div style="font-size:11.5px; color:#6B7A87; margin-bottom:10px;">行をドラッグ&ドロップすると並び順を変更できます(▲▼ボタンでも移動可)。</div>
       <div style="display:grid; gap:6px; margin-bottom:10px;">
         ${items.map((v,i)=>`
-          <div style="display:flex; align-items:center; gap:8px; border:1px solid #DCE0E3; border-radius:6px; padding:6px 10px;">
+          <div class="dnd-item" draggable="true" data-dnd-field="${removePrefix}" data-dnd-index="${i}">
+            <span class="drag-handle" title="ドラッグして並び替え">⠿</span>
+            <span style="font-size:11px; color:#8A959E; min-width:16px;">${i+1}</span>
             ${colorFn? `<span style="width:10px; height:10px; border-radius:50%; background:${colorFn(i)};"></span>`:""}
             <span style="flex:1; font-weight:600;">${esc(v)}</span>
+            <button class="btn btn-secondary btn-move" data-mv="${removePrefix}|${i}|-1" ${i===0?"disabled":""} title="上へ">▲</button>
+            <button class="btn btn-secondary btn-move" data-mv="${removePrefix}|${i}|1" ${i===items.length-1?"disabled":""} title="下へ">▼</button>
             <button class="btn btn-small btn-secondary btn-danger" data-rm="${removePrefix}|${esc(v)}">削除</button>
           </div>`).join("")}
       </div>
@@ -1508,7 +1719,7 @@ function renderMaster(){
       <select id="managerSelect">${master.members.map(m=>`<option ${m===master.manager?"selected":""}>${esc(m)}</option>`).join("")}</select>
     </div>
     ${listRow("案件分類", master.categories, "newCategory", "categories", (i)=>CAT_PALETTE[i%CAT_PALETTE.length])}
-    ${listRow("進捗ステータス(順序どおり)", master.statuses, "newStatus", "statuses", null)}
+    ${listRow("進捗ステータス(この順序でカンバンに並びます)", master.statuses, "newStatus", "statuses", null)}
     ${listRow("繁忙度(軽い→重いの順)", master.busyLevels, "newBusy", "busyLevels", (i)=>BUSY_PALETTE[i%BUSY_PALETTE.length])}
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:10px;">顧客マスタ</h3>
@@ -1559,6 +1770,7 @@ function renderMaster(){
     alert("パスワードを変更しました。全メンバーに共有してください。");
     $("newPw").value="";
   });
+  bindMasterDnd();
   renderCustomerList();
   $("btnAddCustomer").addEventListener("click", async ()=>{
     const name=$("custName").value.trim();
