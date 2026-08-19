@@ -285,8 +285,8 @@
 /* =====================================================
    ① 初期設定:Supabase の値をここに貼り付けてください
    ===================================================== */
-   const SUPABASE_URL = "https://nytduxybzkpvfmxkuneh.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55dGR1eHliemtwdmZteGt1bmVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwODQ1MTIsImV4cCI6MjEwMjY2MDUxMn0.bxXwEnp184TlN_TdKIDISklzygXB72QUDxw2YzrQCs0";
+const SUPABASE_URL = "PASTE_SUPABASE_URL_HERE";
+const SUPABASE_ANON_KEY = "PASTE_SUPABASE_ANON_KEY_HERE";
 /* ===================================================== */
 
 const DEFAULT_MASTER = {
@@ -778,6 +778,34 @@ function parseNippo(text){
   const date=`${d[1]}-${String(+d[2]).padStart(2,"0")}-${String(+d[3]).padStart(2,"0")}`;
   return {name, date, content:text};
 }
+function extractCardText(node, out){
+  if(node==null) return;
+  if(typeof node==="string"){ out.push(node); return; }
+  if(Array.isArray(node)){ node.forEach(x=>extractCardText(x,out)); return; }
+  if(typeof node==="object"){
+    if(typeof node.text==="string") out.push(node.text);
+    if(typeof node.title==="string") out.push(node.title);
+    if(typeof node.value==="string") out.push(node.value);
+    ["body","items","facts","columns","actions"].forEach(k=>{ if(node[k]) extractCardText(node[k], out); });
+  }
+}
+function messageToText(m){
+  const parts=[];
+  const div=document.createElement("div"); div.innerHTML=m.body?.content||"";
+  const bodyText=div.innerText.replace(/\u00a0/g," ").trim();
+  if(bodyText) parts.push(bodyText);
+  (m.attachments||[]).forEach(att=>{
+    if(!att.content) return;
+    if((att.contentType||"").includes("adaptive")||(att.contentType||"").includes("card")){
+      try{
+        const card=typeof att.content==="string"? JSON.parse(att.content) : att.content;
+        const out=[]; extractCardText(card, out);
+        parts.push(out.join("\n"));
+      }catch(e){ /* JSONでなければ無視 */ }
+    }
+  });
+  return parts.join("\n");
+}
 async function importTeamsNippo(interactive=true){
   if(!teamsCfgOk()||!settings.teamsChannelId){
     if(interactive) showImportMsg("設定タブで「Teams日報取込設定」を完了してください。", false);
@@ -792,8 +820,7 @@ async function importTeamsNippo(interactive=true){
     const rows=[];
     for(const m of msgs){
       if(m.messageType&&m.messageType!=="message") continue;
-      const div=document.createElement("div"); div.innerHTML=m.body?.content||"";
-      const text=div.innerText.replace(/\u00a0/g," ").trim();
+      const text=messageToText(m);
       const p=parseNippo(text); if(!p) continue;
       rows.push({author:p.name, report_date:p.date, content:p.content, teams_msg_id:m.id, teams_sent:true});
     }
