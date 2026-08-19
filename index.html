@@ -201,6 +201,7 @@
         </div>
       </div>
       <div class="alert alert-info" id="teamsImportMsg" style="display:none;"></div>
+      <div class="alert alert-info" style="font-size:12px;">各日報の「会議資料に反映」を押すと、その人の今週(月〜金)分の業務内容・報告相談事項を自動集計し、会議モードと社長報告に反映します。</div>
       <div id="nippoList"></div>
 
       <div class="section-header" style="margin-top:26px;"><span class="section-num">07</span><h2 class="section-title">アプリから直接送信(任意)</h2></div>
@@ -325,6 +326,7 @@ const fmtKey = (d)=>`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}
 const fmtJP = (d)=>`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
 const fmtShort = (d)=>`${d.getMonth()+1}/${d.getDate()}`;
 const fmtDT = (iso)=>{ const d=new Date(iso); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
+const toISODate = (d)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const todayStr = ()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 function weekDates(m){ return DAYS.map((_,i)=>{ const x=new Date(m); x.setDate(x.getDate()+i); return x; }); }
 
@@ -385,7 +387,7 @@ function ensureWeek(w, members){
   const out={
     schedule:{...(base.schedule||{})}, todos:{...(base.todos||{})},
     busy:{...(base.busy||{})}, helpNeed:{...(base.helpNeed||{})}, helpGive:{...(base.helpGive||{})},
-    meetingNote:base.meetingNote||"", decisions:base.decisions||"",
+    meetingNote:base.meetingNote||"", decisions:base.decisions||"", nippoSummary:base.nippoSummary||{},
   };
   members.forEach(m=>{
     if(!Array.isArray(out.schedule[m])) out.schedule[m]=["","","","",""];
@@ -847,6 +849,22 @@ async function renderNippo(autoImport=true){
     if(n>0) await renderNippoList();
   }
 }
+function parseNippoFields(content){
+  const w=content.match(/業務内容[：:]\s*(.+)/);
+  const i=content.match(/報告[・･]?相談事項[：:]\s*([\s\S]+)/);
+  return { work: w? w[1].trim() : "", issue: i? i[1].trim().replace(/\n{2,}/g,"\n") : "" };
+}
+async function reflectNippoToMeeting(author){
+  await loadWeek();
+  const s=toISODate(monday); const eDate=new Date(monday); eDate.setDate(eDate.getDate()+4); const e=toISODate(eDate);
+  const {data}=await sb.from("nippo").select("*").eq("author",author).gte("report_date",s).lte("report_date",e).order("report_date",{ascending:true});
+  const items=(data||[]).map(n=>{ const f=parseNippoFields(n.content); return {date:n.report_date, work:f.work, issue:f.issue}; }).filter(x=>x.work||x.issue);
+  week.nippoSummary=week.nippoSummary||{};
+  week.nippoSummary[author]=items;
+  await saveWeekNow();
+  await logAction("会議資料に反映", `${author}:${items.length}件(${fmtShort(monday)}週)`);
+  return items.length;
+}
 async function renderNippoList(){
   const since=new Date(); since.setDate(since.getDate()-10);
   let q=sb.from("nippo").select("*").gte("report_date", since.toISOString().slice(0,10)).order("report_date",{ascending:false}).order("id",{ascending:false});
@@ -859,7 +877,14 @@ async function renderNippoList(){
       <div class="card">
         <div class="feed-meta"><strong style="color:#17242F;">${esc(n.author)}</strong><span>作業日:${esc(n.report_date)}</span>${n.teams_msg_id? '<span class="read-chip">Teams取込</span>':""}</div>
         <div style="margin-top:6px; white-space:pre-wrap; font-size:13.5px;">${esc(n.content)}</div>
+        <div style="margin-top:8px;"><button class="btn btn-secondary btn-small" data-nippo-reflect="${esc(n.author)}">会議資料に反映</button></div>
       </div>`).join("");
+  document.querySelectorAll("[data-nippo-reflect]").forEach(b=>b.addEventListener("click", async ()=>{
+    b.disabled=true; b.textContent="反映中…";
+    const cnt=await reflectNippoToMeeting(b.dataset.nippoReflect);
+    showImportMsg(`${b.dataset.nippoReflect}さんの今週分(${fmtShort(monday)}週)を会議資料・社長報告に反映しました(${cnt}件)。`);
+    b.disabled=false; b.textContent="会議資料に反映";
+  }));
 }
 async function teamsConnectPick(){
   if(!teamsCfgOk()){ alert("テナントIDとクライアントIDを先に入力してください。"); return; }
@@ -916,8 +941,10 @@ async function postNippo(){
 function busyColor(level){ const i=master.busyLevels.indexOf(level); return i>=0? BUSY_PALETTE[i%BUSY_PALETTE.length] : "#B0B7BD"; }
 function mandaySum(m){ return cases.filter(c=>!c.archived&&c.owner===m).reduce((a,c)=>a+(parseFloat(c.manday)||0),0); }
 function renderMeeting(){
+  const ns=week.nippoSummary||{};
   $("meetingList").innerHTML = master.members.map(m=>{
     const total=mandaySum(m); const over=total>=master.mandayLimit;
+    const items=ns[m]||[];
     return `
     <div class="card">
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
@@ -935,6 +962,15 @@ function renderMeeting(){
         <div><label style="font-size:12px; font-weight:700;">手伝えること</label>
           <textarea rows="2" data-hgive="${esc(m)}" style="margin-top:4px;">${esc(week.helpGive[m]||"")}</textarea></div>
       </div>
+      ${items.length? `
+      <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">日報より:今週の実施内容(自動集計)</div>
+        ${items.map(it=>`
+          <div style="font-size:12.5px; margin-bottom:6px; padding-bottom:6px; border-bottom:1px dashed #EEE;">
+            <strong>${esc(it.date)}</strong>${it.work? `　業務内容:${esc(it.work)}`:""}
+            ${it.issue? `<div style="color:#B34608; margin-top:2px;">相談・報告:${esc(it.issue)}</div>`:""}
+          </div>`).join("")}
+      </div>`:""}
     </div>`;
   }).join("");
   document.querySelectorAll("[data-busy]").forEach(s=>s.addEventListener("change",()=>{ week.busy[s.dataset.busy]=s.value; queueSave("week"); }));
@@ -978,14 +1014,24 @@ function renderReport(){
       <tr><th style="${th}">氏名</th>${DAYS.map((d,i)=>`<th style="${th}">${d} ${fmtShort(dates[i])}</th>`).join("")}</tr>
       ${master.members.map(m=>`<tr><td style="${td} font-weight:700;">${esc(m)}</td>${DAYS.map((_,i)=>`<td style="${td} white-space:pre-wrap;">${esc((week.schedule[m]||[])[i]||"")}</td>`).join("")}</tr>`).join("")}
     </table>
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">3. 主な案件</h2>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">3. 日報まとめ(業務内容・報告相談事項)</h2>
+    <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
+      <tr><th style="${th}">氏名</th><th style="${th}">日付</th><th style="${th}">業務内容</th><th style="${th}">報告・相談事項</th></tr>
+      ${(()=>{
+        const ns=week.nippoSummary||{};
+        const rows=master.members.flatMap(m=>(ns[m]||[]).map(it=>({m,...it})));
+        if(rows.length===0) return `<tr><td colspan="4" style="${td}">(日報の反映なし。日報タブで「会議資料に反映」を押してください)</td></tr>`;
+        return rows.map(r=>`<tr><td style="${td}">${esc(r.m)}</td><td style="${td}">${esc(r.date)}</td><td style="${td}">${esc(r.work||"")}</td><td style="${td} ${r.issue?"color:#9B2C2C;":""}">${esc(r.issue||"")}</td></tr>`).join("");
+      })()}
+    </table>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">4. 主な案件</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
       <tr><th style="${th}">担当</th><th style="${th}">分類</th><th style="${th}">案件名</th><th style="${th}">ステータス</th><th style="${th}">人日</th><th style="${th}">来週予定</th></tr>
       ${activeCases.length===0? `<tr><td colspan="6" style="${td}">(今週の案件登録なし)</td></tr>` : activeCases.map(c=>`
         <tr><td style="${td}">${esc(c.owner)}</td><td style="${td}">${esc(c.category)}</td><td style="${td}">${esc(c.name)}</td>
         <td style="${td} text-align:center;">${esc(c.status)}</td><td style="${td} text-align:center;">${c.manday||0}</td><td style="${td}">${esc(c.nextPlan||"")}</td></tr>`).join("")}
     </table>
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">4. 決定事項</h2>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">5. 決定事項</h2>
     <div style="border:1px solid #CCC; border-radius:4px; padding:8px 10px; min-height:40px; white-space:pre-wrap;">${esc(week.decisions||"(記載なし)")}</div>
   </div>`;
 }
