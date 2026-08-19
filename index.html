@@ -3,13 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
   <title>D-WOLF 週次オペレーションボード</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.4/lib/msal-browser.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Noto Sans JP','Hiragino Kaku Gothic ProN','Yu Gothic Medium',sans-serif; background: #F2F3F1; color: #17242F; }
-    
+
     .container { min-height: 100vh; display: flex; flex-direction: column; }
-    header { background: #17242F; color: #fff; padding: 10px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    header { background: #17242F; color: #fff; padding: 10px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; position: sticky; top: 0; z-index: 40; }
     header .logo { display: flex; align-items: baseline; gap: 8px; }
     header .logo-main { font-weight: 900; font-size: 18px; letter-spacing: 2px; }
     header .logo-sub { font-size: 10px; color: #9FB0BC; letter-spacing: 1px; }
@@ -17,35 +20,35 @@
     header .week-nav button { background: none; border: none; color: #fff; cursor: pointer; font-size: 15px; padding: 0 4px; }
     header .week-nav .label { font-size: 13px; font-weight: 700; }
     header .status { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-    header .status-msg { font-size: 11px; color: #9FB0BC; }
-    header button { background: #22333F; border: 1px solid #33475466; color: #fff; border-radius: 5px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
-    
-    nav { background: #fff; border-bottom: 1px solid #DCE0E3; display: flex; overflow-x: auto; }
-    nav button { background: none; border: none; border-bottom: 3px solid transparent; padding: 11px 16px; font-size: 13.5px; font-weight: 500; color: #3D4F5E; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    header .status-msg { font-size: 11px; color: #9FB0BC; min-width: 70px; text-align: right; }
+    header .hbtn { background: #22333F; border: 1px solid #33475466; color: #fff; border-radius: 5px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+
+    nav { background: #fff; border-bottom: 1px solid #DCE0E3; display: flex; overflow-x: auto; position: sticky; top: 48px; z-index: 39; }
+    nav button { background: none; border: none; border-bottom: 3px solid transparent; padding: 11px 14px; font-size: 13.5px; font-weight: 500; color: #3D4F5E; cursor: pointer; font-family: inherit; white-space: nowrap; position: relative; }
     nav button.active { border-bottom-color: #E8590C; font-weight: 800; color: #17242F; }
     nav button:hover { background: #FAFAF9; }
-    
-    main { flex: 1; max-width: 1080px; margin: 0 auto; width: 100%; padding: 14px 16px 60px; }
-    main > div { display: none; }
-    main > div.active { display: block; }
-    
-    .section-header { display: flex; align-items: center; gap: 8px; margin: 18px 0 10px; }
+    nav .badge { position: absolute; top: 5px; right: 2px; background: #E8590C; color: #fff; font-size: 9px; font-weight: 800; border-radius: 8px; padding: 1px 5px; }
+
+    main { flex: 1; max-width: 1120px; margin: 0 auto; width: 100%; padding: 14px 16px 60px; }
+    .section { display: none; }
+    .section.active { display: block; }
+
+    .section-header { display: flex; align-items: center; gap: 8px; margin: 18px 0 10px; flex-wrap: wrap; }
     .section-num { background: #17242F; color: #fff; font-size: 11px; font-weight: 800; border-radius: 3px; padding: 2px 7px; letter-spacing: 1px; }
     .section-title { font-size: 15px; font-weight: 800; color: #17242F; margin: 0; }
-    .section-right { margin-left: auto; }
-    
-    .card { background: #fff; border: 1px solid #DCE0E3; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
-    .card-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .card-title { font-size: 14.5px; font-weight: 800; }
-    .chip { background: #18; border: 1px solid #44; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 700; white-space: nowrap; display: inline-block; }
-    
-    table { border-collapse: collapse; width: 100%; margin-bottom: 14px; background: #fff; border: 1px solid #DCE0E3; border-radius: 10px; overflow: hidden; }
-    th { background: #17242F; color: #fff; font-size: 12px; font-weight: 700; padding: 8px 10px; text-align: left; }
-    td { border-top: 1px solid #DCE0E3; border-left: 1px solid #DCE0E3; padding: 8px 10px; font-size: 13px; vertical-align: top; }
-    
-    input[type="text"], input[type="number"], textarea, select { width: 100%; box-sizing: border-box; border: 1px solid #DCE0E3; border-radius: 6px; padding: 7px 9px; font-size: 13px; font-family: inherit; background: #fff; color: #17242F; }
-    input[type="text"]:focus, input[type="number"]:focus, textarea:focus, select:focus { outline: none; border-color: #E8590C; }
-    
+
+    .card { background: #fff; border: 1px solid #DCE0E3; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+    .chip { border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 700; white-space: nowrap; display: inline-block; }
+
+    table.grid { border-collapse: collapse; width: 100%; margin-bottom: 14px; background: #fff; border: 1px solid #DCE0E3; }
+    table.grid th { background: #17242F; color: #fff; font-size: 12px; font-weight: 700; padding: 8px 10px; text-align: left; }
+    table.grid td { border-top: 1px solid #DCE0E3; border-left: 1px solid #DCE0E3; padding: 6px 8px; font-size: 13px; vertical-align: top; }
+
+    input[type="text"], input[type="password"], input[type="number"], input[type="date"], textarea, select { box-sizing: border-box; border: 1px solid #DCE0E3; border-radius: 6px; padding: 7px 9px; font-size: 13px; font-family: inherit; background: #fff; color: #17242F; }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: #E8590C; }
+    textarea { resize: vertical; width: 100%; }
+    .w100 { width: 100%; }
+
     .btn { border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; border: none; }
     .btn-primary { background: #E8590C; color: #fff; }
     .btn-primary:hover { background: #d4760f; }
@@ -53,846 +56,1088 @@
     .btn-secondary:hover { background: #FAFAF9; }
     .btn-small { padding: 2px 8px; font-size: 12px; }
     .btn-danger { color: #B54747; }
-    
+
     .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 50; padding: 16px; }
     .modal.show { display: flex; }
-    .modal-content { background: #fff; border-radius: 12px; padding: 18px; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; }
+    .modal-content { background: #fff; border-radius: 12px; padding: 18px; width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; }
     .modal-title { font-size: 16px; font-weight: 800; margin-bottom: 12px; }
-    .modal-grid { display: grid; gap: 10px; }
     .modal-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    
-    .todo-item { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px solid #DCE0E3; }
-    .todo-item input[type="checkbox"] { cursor: pointer; }
-    .todo-item.done { text-decoration: line-through; color: #9AA4AC; }
-    
-    .busy-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
-    
+
+    .todo-item { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px solid #EEE; }
+    .todo-item.done span { text-decoration: line-through; color: #9AA4AC; }
+
     .alert { padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 12.5px; line-height: 1.7; }
-    .alert-info { background: #FFF0E6; border: 1px solid #E8590C33; color: #E8590C; }
+    .alert-info { background: #FFF0E6; border: 1px solid #E8590C33; color: #B34608; }
     .alert-warning { background: #FFF8E6; border: 1px solid #E5C56A; color: #7A5B00; }
-    
+    .alert-error { background: #FDECEC; border: 1px solid #E5A0A0; color: #9B2C2C; }
+
+    .feed-item { border-left: 4px solid #E8590C; }
+    .feed-meta { font-size: 11.5px; color: #6B7A87; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .read-chip { background: #EEF3F0; border: 1px solid #D5E0DA; color: #2F6A4F; border-radius: 10px; padding: 1px 8px; font-size: 10.5px; }
+    .unread-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #E8590C; }
+
+    .comment-item { border-top: 1px solid #EEE; padding: 8px 2px; font-size: 13px; }
+    .comment-meta { font-size: 11px; color: #6B7A87; margin-bottom: 2px; }
+
+    .audit-row { font-size: 12px; color: #3D4F5E; padding: 5px 2px; border-bottom: 1px solid #EEE; display: flex; gap: 8px; flex-wrap: wrap; }
+    .audit-time { color: #8A959E; min-width: 105px; }
+
+    .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 70vh; text-align: center; }
+    .login-box { max-width: 420px; width: 100%; }
+    .member-btn { width: 100%; padding: 13px; font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .member-btn.selected { border-color: #E8590C; background: #FFF0E6; font-weight: 800; }
+
     @media print {
       body * { visibility: hidden !important; }
       #printArea, #printArea * { visibility: visible !important; }
       #printArea { position: absolute; left: 0; top: 0; width: 100%; background: #fff; }
       @page { size: A4 portrait; margin: 12mm; }
     }
-    
-    textarea { resize: vertical; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <!-- ヘッダー -->
-    <header>
-      <div class="logo">
-        <span class="logo-main">D-WOLF</span>
-        <span class="logo-sub">WEEKLY OPS</span>
-      </div>
-      <div class="week-nav">
-        <button onclick="prevWeek()">‹</button>
-        <span class="label" id="weekLabel"></span>
-        <button onclick="nextWeek()">›</button>
-        <button onclick="todayWeek()">今週</button>
-      </div>
-      <div class="status">
-        <span class="status-msg" id="saveStatus"></span>
-        <button onclick="reload()">最新に更新</button>
-        <button onclick="logout()" id="userBtn"></button>
-      </div>
-    </header>
+<div class="container">
+  <header id="appHeader" style="display:none;">
+    <div class="logo"><span class="logo-main">D-WOLF</span><span class="logo-sub">WEEKLY OPS v2</span></div>
+    <div class="week-nav">
+      <button id="btnPrevW">‹</button>
+      <span class="label" id="weekLabel"></span>
+      <button id="btnNextW">›</button>
+      <button id="btnTodayW" style="font-size:12px;">今週</button>
+    </div>
+    <div class="status">
+      <span class="status-msg" id="saveStatus"></span>
+      <button class="hbtn" id="btnReload">最新に更新</button>
+      <button class="hbtn" id="btnLogout"></button>
+    </div>
+  </header>
 
-    <!-- タブ -->
-    <nav>
-      <button class="tab-btn active" data-tab="board" onclick="switchTab('board')">週間ボード</button>
-      <button class="tab-btn" data-tab="cases" onclick="switchTab('cases')">案件管理</button>
-      <button class="tab-btn" data-tab="meeting" onclick="switchTab('meeting')">会議モード</button>
-      <button class="tab-btn" data-tab="report" onclick="switchTab('report')">社長報告</button>
-      <button class="tab-btn" data-tab="master" onclick="switchTab('master')">マスター管理</button>
-      <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">設定</button>
-    </nav>
+  <nav id="appNav" style="display:none;">
+    <button class="tab-btn active" data-tab="board">週間ボード</button>
+    <button class="tab-btn" data-tab="cases">案件管理</button>
+    <button class="tab-btn" data-tab="feed">連絡事項<span class="badge" id="feedBadge" style="display:none;"></span></button>
+    <button class="tab-btn" data-tab="nippo">日報</button>
+    <button class="tab-btn" data-tab="meeting">会議モード</button>
+    <button class="tab-btn" data-tab="report">社長報告</button>
+    <button class="tab-btn" data-tab="master">マスター管理</button>
+    <button class="tab-btn" data-tab="settings">設定</button>
+  </nav>
 
-    <!-- メイン -->
-    <main>
-      <!-- メンバー選択 -->
-      <div id="loginScreen" style="display: flex; align-items: center; justify-content: center; min-height: 60vh; text-align: center;">
-        <div style="max-width: 420px;">
-          <div style="color: #E8590C; font-size: 12px; letter-spacing: 4px; font-weight: 800; margin-bottom: 6px;">SHIMIZUGUMI DRONE UNIT</div>
-          <h1 style="color: #17242F; font-size: 34px; font-weight: 900; margin: 0 0 4px; letter-spacing: 2px;">D-WOLF</h1>
-          <div style="color: #3D4F5E; font-size: 13px; margin-bottom: 28px;">週次オペレーションボード｜あなたの名前を選択</div>
-          <div id="memberButtons" style="display: grid; gap: 10px;"></div>
-        </div>
-      </div>
+  <main>
+    <div id="setupBanner" class="alert alert-error" style="display:none; margin-top:14px;">
+      <strong>初期設定が未完了です。</strong><br>
+      index.html 冒頭の SUPABASE_URL / SUPABASE_ANON_KEY に、Supabaseの値を貼り付けてください。
+    </div>
 
-      <!-- 週間ボード -->
-      <div data-section="board" class="active">
-        <div class="section-header">
-          <span class="section-num">01</span>
-          <h2 class="section-title">週間スケジュール(月〜金)</h2>
-        </div>
-        
-        <div class="alert alert-info">
-          <strong>Googleカレンダー取込</strong><br>
-          ①カレンダーのICS URLを設定タブで登録 → ②下の「ICSファイルを取込」でダウンロード&取込します
-          <input type="file" id="icsFile" accept=".ics,text/calendar" style="display:none" onchange="importICS(event)">
-          <button class="btn btn-secondary" style="margin-top:8px" onclick="document.getElementById('icsFile').click()">ICSファイルを取込</button>
-        </div>
-
-        <div style="overflow-x: auto;">
-          <table id="scheduleTable"></table>
-        </div>
-
-        <div class="section-header">
-          <span class="section-num">02</span>
-          <h2 class="section-title" id="todoTitle"></h2>
-        </div>
-        <div class="card">
-          <div style="display: flex; gap: 8px; margin-bottom: 10px;">
-            <input type="text" id="todoInput" placeholder="TODOを入力してEnter" onkeydown="if(event.key==='Enter') addTodo()">
-            <button class="btn btn-primary" onclick="addTodo()">追加</button>
-          </div>
-          <div id="todoList"></div>
-        </div>
-      </div>
-
-      <!-- 案件管理 -->
-      <div data-section="cases">
-        <div class="section-header">
-          <span class="section-num">03</span>
-          <h2 class="section-title">案件管理</h2>
-          <div style="margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <select id="filterOwner" onchange="renderCases()" style="width: auto;">
-              <option>全員</option>
-            </select>
-            <label style="font-size: 12px; display: flex; align-items: center; gap: 4px;">
-              <input type="checkbox" id="showArchived" onchange="renderCases()"> 完了済も表示
-            </label>
-            <button class="btn btn-primary" onclick="editCase(null)">＋ 案件追加</button>
-          </div>
-        </div>
-        <div id="casesList"></div>
-      </div>
-
-      <!-- 会議モード -->
-      <div data-section="meeting">
-        <div class="section-header">
-          <span class="section-num">04</span>
-          <h2 class="section-title">会議モード</h2>
-        </div>
-        <div class="alert alert-info">各自の稼働・応援依頼をその場で更新できます。編集内容は自動保存されます。</div>
-        <div id="meetingList"></div>
-
-        <div class="section-header">
-          <span class="section-num">05</span>
-          <h2 class="section-title">会議メモ・決定事項</h2>
-        </div>
-        <div class="card">
-          <div style="margin-bottom: 10px;">
-            <label style="font-size: 12px; font-weight: 700; color: #3D4F5E;">会議メモ(議事)</label>
-            <textarea id="meetingNote" rows="4" placeholder="話し合った内容を記録" style="margin-top: 4px;" onchange="queueSave('week')"></textarea>
-          </div>
-          <div>
-            <label style="font-size: 12px; font-weight: 700; color: #3D4F5E;">決定事項</label>
-            <textarea id="decisions" rows="3" placeholder="決定した内容を記録" style="margin-top: 4px;" onchange="queueSave('week')"></textarea>
-          </div>
-        </div>
-      </div>
-
-      <!-- 社長報告 -->
-      <div data-section="report">
-        <div class="section-header">
-          <span class="section-num">06</span>
-          <h2 class="section-title">社長報告(A4・1枚)</h2>
-          <button class="btn btn-primary" style="margin-left: auto;" onclick="window.print()">印刷 / PDF保存</button>
-        </div>
-        <div style="font-size: 12.5px; color: #3D4F5E; margin-bottom: 12px;">
-          下のプレビューがそのまま印刷されます。修正は各タブで行ってください。
-        </div>
-        <div id="printArea"></div>
-      </div>
-
-      <!-- マスター管理 -->
-      <div data-section="master">
-        <div class="section-header">
-          <span class="section-num">07</span>
-          <h2 class="section-title">マスター管理</h2>
-        </div>
-        <div class="alert alert-warning">
-          ここでの変更は全メンバーの画面に即時反映されます。変更は管理責任者が行う運用を推奨します。
-        </div>
-        <div id="masterPanel"></div>
-      </div>
-
-      <!-- 設定 -->
-      <div data-section="settings">
-        <div class="section-header">
-          <span class="section-num">08</span>
-          <h2 class="section-title">GoogleカレンダーICS URL登録</h2>
-        </div>
-        <div class="card">
-          <ol style="padding-left: 20px; line-height: 1.9; color: #3D4F5E; font-size: 12.5px; margin-bottom: 14px;">
-            <li>PCのGoogleカレンダーで歯車 → 設定 → 「マイカレンダー」で自分のカレンダーを選択</li>
-            <li>「カレンダーの統合」内の「<strong>iCal形式の公開URL</strong>」をコピー</li>
-            <li>下の自分の欄に貼り付け(自動保存)</li>
-          </ol>
-          <div id="icsPanel" style="display: grid; gap: 10px;"></div>
-          <div style="margin-top: 12px; font-size: 12px; color: #B54747; line-height: 1.7;">
-            注意:このURLはメンバー全員に見える前提で登録してください。
-          </div>
-        </div>
-      </div>
-    </main>
-  </div>
-
-  <!-- モーダル -->
-  <div class="modal" id="caseModal">
-    <div class="modal-content">
-      <h3 class="modal-title" id="caseModalTitle"></h3>
-      <div class="modal-grid" id="caseFormGrid"></div>
-      <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
-        <button class="btn btn-secondary" onclick="closeCaseModal()">キャンセル</button>
-        <button class="btn btn-primary" onclick="saveCase()">保存</button>
+    <!-- ログイン -->
+    <div id="loginScreen" class="login-wrap">
+      <div class="login-box">
+        <div style="color:#E8590C; font-size:12px; letter-spacing:4px; font-weight:800; margin-bottom:6px;">SHIMIZUGUMI DRONE UNIT</div>
+        <h1 style="font-size:34px; font-weight:900; margin:0 0 4px; letter-spacing:2px;">D-WOLF</h1>
+        <div style="color:#3D4F5E; font-size:13px; margin-bottom:24px;">週次オペレーションボード｜名前を選んでパスワードを入力</div>
+        <div id="memberButtons"></div>
+        <input type="password" id="loginPw" class="w100" placeholder="共通パスワード" style="margin-top:12px; padding:11px;">
+        <button class="btn btn-primary w100" id="btnLogin" style="margin-top:10px; padding:12px;">ログイン</button>
+        <div id="loginMsg" style="color:#B54747; font-size:12.5px; margin-top:10px;"></div>
       </div>
     </div>
+
+    <!-- 週間ボード -->
+    <div class="section" data-section="board">
+      <div class="section-header">
+        <span class="section-num">01</span><h2 class="section-title">週間スケジュール(月〜金)</h2>
+        <div style="margin-left:auto;">
+          <input type="file" id="icsFile" accept=".ics,text/calendar" style="display:none">
+          <button class="btn btn-secondary btn-small" id="btnIcs">ICSファイル取込</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;"><table class="grid" id="scheduleTable"></table></div>
+
+      <div class="section-header"><span class="section-num">02</span><h2 class="section-title" id="todoTitle"></h2></div>
+      <div class="card">
+        <div style="display:flex; gap:8px; margin-bottom:10px;">
+          <input type="text" id="todoInput" class="w100" placeholder="TODOを入力してEnter">
+          <button class="btn btn-primary" id="btnAddTodo">追加</button>
+        </div>
+        <div id="todoList"></div>
+      </div>
+    </div>
+
+    <!-- 案件管理 -->
+    <div class="section" data-section="cases">
+      <div class="section-header">
+        <span class="section-num">03</span><h2 class="section-title">案件管理</h2>
+        <div style="margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <select id="filterOwner"><option>全員</option></select>
+          <label style="font-size:12px; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="showArchived"> 完了済も表示</label>
+          <button class="btn btn-primary" id="btnAddCase">＋ 案件追加</button>
+        </div>
+      </div>
+      <div class="alert alert-info" style="font-size:12px;">案件は週をまたいで自動継続します。完了したら「完了」でアーカイブしてください。</div>
+      <div id="casesList"></div>
+    </div>
+
+    <!-- 連絡事項 -->
+    <div class="section" data-section="feed">
+      <div class="section-header"><span class="section-num">04</span><h2 class="section-title">連絡事項(全員向け掲示板)</h2></div>
+      <div class="card">
+        <textarea id="annInput" rows="3" placeholder="全員への連絡を入力(例:金曜の定例は15時に変更します)"></textarea>
+        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+          <button class="btn btn-primary" id="btnPostAnn">投稿する</button>
+        </div>
+      </div>
+      <div id="annList"></div>
+
+      <div class="section-header" style="margin-top:26px;"><span class="section-num">05</span><h2 class="section-title">更新履歴(直近50件)</h2></div>
+      <div class="card" id="auditList"></div>
+    </div>
+
+    <!-- 日報 -->
+    <div class="section" data-section="nippo">
+      <div class="section-header"><span class="section-num">06</span><h2 class="section-title">日報(Teams取込)</h2>
+        <div style="margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <select id="nippoFilter"><option>全員</option></select>
+          <button class="btn btn-primary btn-small" id="btnTeamsImport">Teamsから取込</button>
+        </div>
+      </div>
+      <div class="alert alert-info" id="teamsImportMsg" style="display:none;"></div>
+      <div id="nippoList"></div>
+
+      <div class="section-header" style="margin-top:26px;"><span class="section-num">07</span><h2 class="section-title">アプリから直接送信(任意)</h2></div>
+      <div class="card">
+        <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+          <label style="font-size:12.5px; font-weight:700;">日付</label>
+          <input type="date" id="nippoDate">
+          <span id="nippoTeamsState" style="font-size:11.5px; color:#6B7A87;"></span>
+        </div>
+        <textarea id="nippoInput" rows="6" placeholder="今日の作業内容・所感・明日の予定 など"></textarea>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
+          <span style="font-size:11.5px; color:#6B7A87;">送信すると保存され、Teams連携設定済みなら日報チャネルにも自動投稿されます。</span>
+          <button class="btn btn-primary" id="btnPostNippo">日報を送信</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 会議モード -->
+    <div class="section" data-section="meeting">
+      <div class="section-header"><span class="section-num">08</span><h2 class="section-title">会議モード</h2></div>
+      <div class="alert alert-info">各自の稼働・応援依頼をその場で更新できます。会議前に「最新に更新」を押してください。</div>
+      <div id="meetingList"></div>
+      <div class="card">
+        <label style="font-size:12px; font-weight:700;">会議メモ(議事)</label>
+        <textarea id="meetingNote" rows="4" style="margin-top:4px;"></textarea>
+        <label style="font-size:12px; font-weight:700; display:block; margin-top:10px;">決定事項</label>
+        <textarea id="decisions" rows="3" style="margin-top:4px;"></textarea>
+      </div>
+    </div>
+
+    <!-- 社長報告 -->
+    <div class="section" data-section="report">
+      <div class="section-header">
+        <span class="section-num">09</span><h2 class="section-title">社長報告(A4・1枚)</h2>
+        <button class="btn btn-primary" style="margin-left:auto;" onclick="window.print()">印刷 / PDF保存</button>
+      </div>
+      <div style="font-size:12.5px; color:#3D4F5E; margin-bottom:12px;">下のプレビューがそのまま印刷されます。修正は各タブで行ってください。</div>
+      <div id="printArea"></div>
+    </div>
+
+    <!-- マスター管理 -->
+    <div class="section" data-section="master">
+      <div class="section-header"><span class="section-num">10</span><h2 class="section-title">マスター管理</h2></div>
+      <div class="alert alert-warning">ここでの変更は全メンバーに即時反映されます。変更は管理責任者が行う運用を推奨します。</div>
+      <div id="masterPanel"></div>
+    </div>
+
+    <!-- 設定 -->
+    <div class="section" data-section="settings">
+      <div class="section-header"><span class="section-num">11</span><h2 class="section-title">設定</h2></div>
+      <div id="settingsPanel"></div>
+    </div>
+  </main>
+</div>
+
+<!-- 案件モーダル -->
+<div class="modal" id="caseModal">
+  <div class="modal-content">
+    <h3 class="modal-title" id="caseModalTitle"></h3>
+    <div id="caseFormGrid" style="display:grid; gap:10px;"></div>
+    <div style="display:flex; gap:8px; margin-top:16px; justify-content:flex-end;">
+      <button class="btn btn-secondary" id="btnCaseCancel">キャンセル</button>
+      <button class="btn btn-primary" id="btnCaseSave">保存</button>
+    </div>
   </div>
+</div>
 
-  <script>
-    // ========== グローバル状態 ==========
-    const DEFAULT_MASTER = {
-      members: ["岩上星音", "飯田匡輝", "妙見修志", "多々良鮎"],
-      manager: "多々良鮎",
-      categories: ["教習", "機体販売", "点検", "ICT", "新規分野"],
-      statuses: ["見積提出", "契約", "準備", "実施", "報告書作成", "完了"],
-      busyLevels: ["余裕あり", "普通", "逼迫"],
-      customFields: [],
-      mandayLimit: 5,
-    };
+<!-- コメントモーダル -->
+<div class="modal" id="commentModal">
+  <div class="modal-content">
+    <h3 class="modal-title" id="commentModalTitle"></h3>
+    <div id="commentList" style="max-height:45vh; overflow-y:auto; margin-bottom:10px;"></div>
+    <textarea id="commentInput" rows="2" placeholder="コメントを入力"></textarea>
+    <div style="display:flex; gap:8px; margin-top:10px; justify-content:flex-end;">
+      <button class="btn btn-secondary" id="btnCommentClose">閉じる</button>
+      <button class="btn btn-primary" id="btnCommentPost">コメント投稿</button>
+    </div>
+  </div>
+</div>
 
-    const DAYS = ["月", "火", "水", "木", "金"];
-    const CAT_PALETTE = ["#2B6CB0", "#6B46C1", "#2F855A", "#B7791F", "#C53030", "#0987A0", "#B83280", "#4A5568", "#975A16", "#276749"];
-    const BUSY_PALETTE = ["#2F855A", "#D69E2E", "#C53030", "#6B46C1", "#4A5568"];
+<script>
+/* =====================================================
+   ① 初期設定:Supabase の値をここに貼り付けてください
+   ===================================================== */
+   const SUPABASE_URL = "https://nytduxybzkpvfmxkuneh.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55dGR1eHliemtwdmZteGt1bmVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwODQ1MTIsImV4cCI6MjEwMjY2MDUxMn0.bxXwEnp184TlN_TdKIDISklzygXB72QUDxw2YzrQCs0";
+/* ===================================================== */
 
-    let me = null;
-    let master = structuredClone(DEFAULT_MASTER);
-    let week = null;
-    let cases = [];
-    let settings = { icsUrls: {} };
-    let monday = getMonday(new Date());
-    let currentTab = "board";
-    let saveTimer = null;
-    let editingCase = null;
+const DEFAULT_MASTER = {
+  members: ["岩上星音", "飯田匡輝", "妙見修志", "多々良鮎"],
+  manager: "多々良鮎",
+  categories: ["教習", "機体販売", "点検", "ICT", "新規分野"],
+  statuses: ["見積提出", "契約", "準備", "実施", "報告書作成", "完了"],
+  busyLevels: ["余裕あり", "普通", "逼迫"],
+  mandayLimit: 5,
+};
+const DAYS = ["月", "火", "水", "木", "金"];
+const CAT_PALETTE = ["#2B6CB0","#6B46C1","#2F855A","#B7791F","#C53030","#0987A0","#B83280","#4A5568","#975A16","#276749"];
+const BUSY_PALETTE = ["#2F855A","#D69E2E","#C53030","#6B46C1","#4A5568"];
 
-    // ========== 初期化 ==========
-    async function init() {
-      master = { ...DEFAULT_MASTER, ...(await loadKey("dwolf-master") || {}) };
-      settings = await loadKey("dwolf-settings") || { icsUrls: {} };
-      cases = await loadKey("dwolf-cases") || [];
-      week = ensureWeek(await loadKey(`dwolf-week:${fmtKey(monday)}`), master.members);
-      renderMemberButtons();
-    }
+let sb = null;
+let me = null;
+let master = structuredClone(DEFAULT_MASTER);
+let week = null;
+let cases = [];
+let settings = {};
+let announcements = [];
+let commentCounts = {};
+let monday = getMonday(new Date());
+let currentTab = "board";
+let saveTimers = {};
+let editingCase = null;
+let commentCaseId = null;
+let selectedLoginName = null;
 
-    function renderMemberButtons() {
-      const html = master.members.map((m) => `
-        <button class="btn btn-secondary" style="padding: 14px; font-size: 16px; justify-content: space-between; display: flex;" onclick="selectMember('${m}')">
-          <span>${m}</span>
-          ${m === master.manager ? `<span style="font-size: 10px; color: #E8590C; border: 1px solid #E8590C; border-radius: 3px; padding: 1px 6px;">管理責任者</span>` : ""}
-        </button>
-      `).join("");
-      document.getElementById("memberButtons").innerHTML = html;
-    }
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 
-    function selectMember(name) {
-      me = name;
-      document.getElementById("loginScreen").style.display = "none";
-      document.getElementById("userBtn").textContent = `${me} ▾`;
-      renderBoard();
-      updateWeekLabel();
-    }
+/* ---------- 日付 ---------- */
+function getMonday(d){ const x=new Date(d); const day=(x.getDay()+6)%7; x.setDate(x.getDate()-day); x.setHours(0,0,0,0); return x; }
+const fmtKey = (d)=>`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+const fmtJP = (d)=>`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
+const fmtShort = (d)=>`${d.getMonth()+1}/${d.getDate()}`;
+const fmtDT = (iso)=>{ const d=new Date(iso); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
+const todayStr = ()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+function weekDates(m){ return DAYS.map((_,i)=>{ const x=new Date(m); x.setDate(x.getDate()+i); return x; }); }
 
-    // ========== ストレージ ==========
-    async function loadKey(key) {
-      try {
-        const r = await window.storage?.get(key, true);
-        return r ? JSON.parse(r.value) : null;
-      } catch { return null; }
-    }
+/* ---------- DB ---------- */
+async function kvGet(k){ const {data,error}=await sb.from("kv").select("value").eq("key",k).maybeSingle(); if(error) console.error(error); return data? data.value : null; }
+async function kvSet(k,v){ const {error}=await sb.from("kv").upsert({key:k, value:v, updated_at:new Date().toISOString()}); if(error){ console.error(error); return false; } return true; }
 
-    async function saveKey(key, obj) {
-      try {
-        await window.storage?.set(key, JSON.stringify(obj), true);
-        return true;
-      } catch { return false; }
-    }
+async function loadWeek(){
+  const {data}=await sb.from("weeks").select("data").eq("week_key",fmtKey(monday)).maybeSingle();
+  week = ensureWeek(data? data.data : null, master.members);
+}
+async function saveWeekNow(){
+  const {error}=await sb.from("weeks").upsert({week_key:fmtKey(monday), data:week, updated_at:new Date().toISOString()});
+  return !error;
+}
+async function loadCases(){
+  const {data}=await sb.from("cases").select("id,data").order("id",{ascending:false});
+  cases=(data||[]).map(r=>({ id:r.id, ...r.data }));
+  const ids=cases.map(c=>c.id);
+  commentCounts={};
+  if(ids.length){
+    const {data:cm}=await sb.from("comments").select("case_id").in("case_id",ids);
+    (cm||[]).forEach(r=>{ commentCounts[r.case_id]=(commentCounts[r.case_id]||0)+1; });
+  }
+}
+async function saveCaseRow(c){
+  const {id, ...rest}=c;
+  const {error}=await sb.from("cases").upsert({id, data:rest, updated_at:new Date().toISOString()});
+  return !error;
+}
+async function loadAnnouncements(){
+  const {data}=await sb.from("announcements").select("*").order("id",{ascending:false}).limit(30);
+  announcements=data||[];
+}
+async function logAction(action, detail){
+  try{ await sb.from("audit_log").insert({author:me, action, detail}); }catch(e){}
+}
 
-    function queueSave(kind) {
-      if (saveTimer) clearTimeout(saveTimer);
-      document.getElementById("saveStatus").textContent = "保存中…";
-      saveTimer = setTimeout(async () => {
-        let ok = true;
-        if (kind === "week") ok = await saveKey(`dwolf-week:${fmtKey(monday)}`, week);
-        if (kind === "cases") ok = await saveKey("dwolf-cases", cases);
-        if (kind === "settings") ok = await saveKey("dwolf-settings", settings);
-        if (kind === "master") ok = await saveKey("dwolf-master", master);
-        document.getElementById("saveStatus").textContent = ok ? "保存しました" : "保存失敗";
-        setTimeout(() => { document.getElementById("saveStatus").textContent = ""; }, 2000);
-      }, 700);
-    }
+function setStatus(msg, ok=true){
+  $("saveStatus").textContent=msg;
+  $("saveStatus").style.color = ok? "#9FB0BC" : "#FF9D9D";
+  if(msg) setTimeout(()=>{ if($("saveStatus").textContent===msg) $("saveStatus").textContent=""; }, 2500);
+}
+function queueSave(kind){
+  if(saveTimers[kind]) clearTimeout(saveTimers[kind]);
+  $("saveStatus").textContent="保存中…";
+  saveTimers[kind]=setTimeout(async ()=>{
+    let ok=true;
+    if(kind==="week") ok=await saveWeekNow();
+    if(kind==="master") ok=await kvSet("master", master);
+    if(kind==="settings") ok=await kvSet("settings", settings);
+    setStatus(ok? "保存しました" : "保存失敗", ok);
+  }, 600);
+}
 
-    // ========== 日付 ==========
-    function getMonday(d) {
-      const x = new Date(d);
-      const day = (x.getDay() + 6) % 7;
-      x.setDate(x.getDate() - day);
-      x.setHours(0, 0, 0, 0);
-      return x;
-    }
+function ensureWeek(w, members){
+  const base=w||{};
+  const out={
+    schedule:{...(base.schedule||{})}, todos:{...(base.todos||{})},
+    busy:{...(base.busy||{})}, helpNeed:{...(base.helpNeed||{})}, helpGive:{...(base.helpGive||{})},
+    meetingNote:base.meetingNote||"", decisions:base.decisions||"",
+  };
+  members.forEach(m=>{
+    if(!Array.isArray(out.schedule[m])) out.schedule[m]=["","","","",""];
+    if(!Array.isArray(out.todos[m])) out.todos[m]=[];
+    if(out.busy[m]===undefined) out.busy[m]="";
+    if(out.helpNeed[m]===undefined) out.helpNeed[m]="";
+    if(out.helpGive[m]===undefined) out.helpGive[m]="";
+  });
+  return out;
+}
 
-    const fmtKey = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-    const fmtJP = (d) => `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
-    const fmtShort = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+/* ---------- 初期化・ログイン ---------- */
+async function boot(){
+  if(SUPABASE_URL.includes("PASTE") || SUPABASE_ANON_KEY.includes("PASTE")){
+    $("setupBanner").style.display="block";
+    $("loginScreen").style.display="none";
+    return;
+  }
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const m=await kvGet("master");
+  if(m) master={...DEFAULT_MASTER, ...m};
+  settings=(await kvGet("settings"))||{};
+  renderLoginButtons();
+  const saved=sessionStorage.getItem("dwolf_user");
+  if(saved && master.members.includes(saved)){ me=saved; await enterApp(); }
+}
+function renderLoginButtons(){
+  $("memberButtons").innerHTML = master.members.map(m=>`
+    <button class="btn btn-secondary member-btn" data-m="${esc(m)}">
+      <span>${esc(m)}</span>
+      ${m===master.manager? '<span style="font-size:10px; color:#E8590C; border:1px solid #E8590C; border-radius:3px; padding:1px 6px;">管理責任者</span>':''}
+    </button>`).join("");
+  document.querySelectorAll(".member-btn").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      selectedLoginName=b.dataset.m;
+      document.querySelectorAll(".member-btn").forEach(x=>x.classList.toggle("selected", x===b));
+    });
+  });
+}
+async function tryLogin(){
+  if(!selectedLoginName){ $("loginMsg").textContent="名前を選択してください。"; return; }
+  const pw=(await kvGet("app_password"))||"dwolf2026";
+  if($("loginPw").value!==pw){ $("loginMsg").textContent="パスワードが違います。"; return; }
+  me=selectedLoginName;
+  sessionStorage.setItem("dwolf_user", me);
+  await enterApp();
+}
+async function enterApp(){
+  $("loginScreen").style.display="none";
+  $("appHeader").style.display="flex";
+  $("appNav").style.display="flex";
+  $("btnLogout").textContent=`${me} ▾`;
+  updateWeekLabel();
+  await Promise.all([loadWeek(), loadCases()]);
+  renderBoard();
+  switchTab("board");
+  refreshFeedBadge();
+}
+function logout(){
+  sessionStorage.removeItem("dwolf_user");
+  location.reload();
+}
 
-    function weekDates(m) {
-      return DAYS.map((_, i) => { const x = new Date(m); x.setDate(x.getDate() + i); return x; });
-    }
+/* ---------- タブ ---------- */
+async function switchTab(tab){
+  currentTab=tab;
+  document.querySelectorAll(".tab-btn").forEach(b=>b.classList.toggle("active", b.dataset.tab===tab));
+  document.querySelectorAll(".section").forEach(d=>d.classList.toggle("active", d.dataset.section===tab));
+  if(tab==="board"){ await loadWeek(); renderBoard(); }
+  if(tab==="cases"){ await loadCases(); renderCases(); }
+  if(tab==="feed"){ await loadAnnouncements(); renderFeed(); await renderAudit(); refreshFeedBadge(); }
+  if(tab==="nippo"){ await renderNippo(); }
+  if(tab==="meeting"){ await Promise.all([loadWeek(), loadCases()]); renderMeeting(); }
+  if(tab==="report"){ await Promise.all([loadWeek(), loadCases()]); renderReport(); }
+  if(tab==="master"){ renderMaster(); }
+  if(tab==="settings"){ renderSettings(); }
+}
+async function reloadCurrent(){ await switchTab(currentTab); setStatus("更新しました"); }
 
-    function prevWeek() { const d = new Date(monday); d.setDate(d.getDate() - 7); setMonday(d); }
-    function nextWeek() { const d = new Date(monday); d.setDate(d.getDate() + 7); setMonday(d); }
-    function todayWeek() { setMonday(getMonday(new Date())); }
+/* ---------- 週間ボード ---------- */
+function updateWeekLabel(){ $("weekLabel").textContent=`${fmtShort(monday)}(月)週`; }
+async function setMonday(m){ monday=m; updateWeekLabel(); await loadWeek(); renderBoard(); if(currentTab!=="board") switchTab(currentTab); }
 
-    async function setMonday(m) {
-      monday = m;
-      week = ensureWeek(await loadKey(`dwolf-week:${fmtKey(monday)}`), master.members);
-      updateWeekLabel();
-      renderBoard();
-    }
-
-    function updateWeekLabel() {
-      document.getElementById("weekLabel").textContent = `${fmtShort(monday)}(月)週`;
-    }
-
-    function ensureWeek(w, members) {
-      const base = w || {};
-      const out = {
-        schedule: { ...(base.schedule || {}) },
-        todos: { ...(base.todos || {}) },
-        busy: { ...(base.busy || {}) },
-        helpNeed: { ...(base.helpNeed || {}) },
-        helpGive: { ...(base.helpGive || {}) },
-        meetingNote: base.meetingNote || "",
-        decisions: base.decisions || "",
-      };
-      members.forEach((m) => {
-        if (!Array.isArray(out.schedule[m])) out.schedule[m] = ["", "", "", "", ""];
-        if (!Array.isArray(out.todos[m])) out.todos[m] = [];
-        if (out.busy[m] === undefined) out.busy[m] = "";
-        if (out.helpNeed[m] === undefined) out.helpNeed[m] = "";
-        if (out.helpGive[m] === undefined) out.helpGive[m] = "";
-      });
-      return out;
-    }
-
-    // ========== タブ切替 ==========
-    function switchTab(tab) {
-      currentTab = tab;
-      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-      document.querySelector(`[data-tab="${tab}"]`).classList.add("active");
-      document.querySelectorAll("main > div[data-section]").forEach((d) => d.classList.remove("active"));
-      document.querySelector(`[data-section="${tab}"]`).classList.add("active");
-
-      if (tab === "report") renderReport();
-      if (tab === "meeting") renderMeeting();
-      if (tab === "master") renderMaster();
-      if (tab === "settings") renderSettings();
-    }
-
-    // ========== 週間ボード ==========
-    function renderBoard() {
-      renderScheduleTable();
-      renderTodos();
-      document.getElementById("todoTitle").textContent = `今週のTODO(${me})`;
-    }
-
-    function renderScheduleTable() {
-      const dates = weekDates(monday);
-      let html = `<tr><th style="background: #17242F; color: #fff;">氏名</th>`;
-      DAYS.forEach((d, i) => {
-        html += `<th style="background: #17242F; color: #fff;">${d} ${fmtShort(dates[i])}</th>`;
-      });
-      html += `</tr>`;
-      master.members.forEach((m) => {
-        html += `<tr><td style="font-weight: 800; background: ${m === me ? "#FFF0E6" : "#FAFAF9"}; white-space: nowrap;">${m}</td>`;
-        DAYS.forEach((_, i) => {
-          const val = (week.schedule[m] || [])[i] || "";
-          html += `<td><textarea rows="3" style="border: none; background: transparent; padding: 4px; resize: vertical; width: 100%; font-size: 12px;" placeholder="${m === me ? "予定を入力" : ""}" onchange="updateSchedule('${m}', ${i}, this.value)">${val}</textarea></td>`;
-        });
-        html += `</tr>`;
-      });
-      document.getElementById("scheduleTable").innerHTML = html;
-    }
-
-    function updateSchedule(member, day, val) {
-      week.schedule[member][day] = val;
+function renderBoard(){
+  const dates=weekDates(monday);
+  let html=`<tr><th>氏名</th>${DAYS.map((d,i)=>`<th>${d} ${fmtShort(dates[i])}</th>`).join("")}</tr>`;
+  master.members.forEach(m=>{
+    html+=`<tr><td style="font-weight:800; background:${m===me?"#FFF0E6":"#FAFAF9"}; white-space:nowrap;">${esc(m)}</td>`;
+    DAYS.forEach((_,i)=>{
+      const val=(week.schedule[m]||[])[i]||"";
+      html+=`<td><textarea rows="3" data-sch="${esc(m)}|${i}" style="border:none; background:transparent; padding:4px; font-size:12px;" placeholder="${m===me?"予定を入力":""}">${esc(val)}</textarea></td>`;
+    });
+    html+=`</tr>`;
+  });
+  $("scheduleTable").innerHTML=html;
+  document.querySelectorAll("[data-sch]").forEach(t=>{
+    t.addEventListener("change", ()=>{
+      const [m,i]=t.dataset.sch.split("|");
+      week.schedule[m][+i]=t.value;
       queueSave("week");
-    }
+    });
+  });
+  $("todoTitle").textContent=`今週のTODO(${me})`;
+  renderTodos();
+}
+function renderTodos(){
+  const todos=week.todos[me]||[];
+  $("todoList").innerHTML = todos.length===0
+    ? `<div style="color:#3D4F5E; font-size:13px;">まだTODOがありません。</div>`
+    : todos.map(t=>`
+      <div class="todo-item ${t.done?"done":""}">
+        <input type="checkbox" data-todo-t="${t.id}" ${t.done?"checked":""}>
+        <span style="flex:1;">${esc(t.text)}</span>
+        <button class="btn btn-small btn-secondary btn-danger" data-todo-d="${t.id}">削除</button>
+      </div>`).join("");
+  document.querySelectorAll("[data-todo-t]").forEach(c=>c.addEventListener("change",()=>{
+    const t=(week.todos[me]||[]).find(x=>x.id==c.dataset.todoT); if(t) t.done=!t.done;
+    renderTodos(); queueSave("week");
+  }));
+  document.querySelectorAll("[data-todo-d]").forEach(b=>b.addEventListener("click",()=>{
+    week.todos[me]=(week.todos[me]||[]).filter(x=>x.id!=b.dataset.todoD);
+    renderTodos(); queueSave("week");
+  }));
+}
+function addTodo(){
+  const text=$("todoInput").value.trim(); if(!text) return;
+  week.todos[me].push({id:Date.now(), text, done:false});
+  $("todoInput").value="";
+  renderTodos(); queueSave("week");
+}
 
-    function renderTodos() {
-      const todos = week.todos[me] || [];
-      let html = "";
-      if (todos.length === 0) html = `<div style="color: #3D4F5E; font-size: 13px;">まだTODOがありません。</div>`;
-      todos.forEach((t) => {
-        html += `
-          <div class="todo-item ${t.done ? "done" : ""}">
-            <input type="checkbox" ${t.done ? "checked" : ""} onchange="toggleTodo(${t.id})">
-            <span style="flex: 1;">${t.text}</span>
-            <button class="btn btn-small btn-danger" onclick="deleteTodo(${t.id})">削除</button>
-          </div>
-        `;
+/* ---------- ICS ---------- */
+function parseICS(text){
+  const lines=text.split(/\r?\n/); const unfolded=[];
+  for(const ln of lines){
+    if((ln.startsWith(" ")||ln.startsWith("\t"))&&unfolded.length) unfolded[unfolded.length-1]+=ln.slice(1);
+    else unfolded.push(ln);
+  }
+  const events=[]; let cur=null;
+  for(const ln of unfolded){
+    if(ln==="BEGIN:VEVENT") cur={};
+    else if(ln==="END:VEVENT"){ if(cur&&cur.start) events.push(cur); cur=null; }
+    else if(cur){
+      if(ln.startsWith("DTSTART")){
+        const v=ln.split(":").slice(1).join(":").trim();
+        const y=+v.slice(0,4), mo=+v.slice(4,6)-1, da=+v.slice(6,8);
+        let h=0,mi=0; if(v.length>=13){ h=+v.slice(9,11); mi=+v.slice(11,13); }
+        let dt=new Date(y,mo,da,h,mi);
+        if(v.endsWith("Z")) dt=new Date(dt.getTime()+9*3600*1000);
+        cur.start=dt;
+      } else if(ln.startsWith("SUMMARY")){
+        cur.summary=ln.split(":").slice(1).join(":").replace(/\\,/g,",").trim();
+      }
+    }
+  }
+  return events;
+}
+function importICS(e){
+  const file=e.target.files?.[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    const events=parseICS(reader.result);
+    const start=new Date(monday), end=new Date(monday); end.setDate(end.getDate()+5);
+    const hits=events.filter(ev=>ev.start>=start&&ev.start<end);
+    if(!hits.length){ alert("この週に該当する予定が見つかりませんでした。"); return; }
+    hits.forEach(ev=>{
+      const idx=Math.floor((ev.start-start)/86400000);
+      if(idx<0||idx>4) return;
+      const label=`${String(ev.start.getHours()).padStart(2,"0")}:${String(ev.start.getMinutes()).padStart(2,"0")} ${ev.summary}`;
+      const cell=week.schedule[me][idx];
+      if(!cell.includes(label)) week.schedule[me][idx]=cell? cell+"\n"+label : label;
+    });
+    renderBoard(); queueSave("week");
+    alert(`${hits.length}件の予定を取り込みました。`);
+  };
+  reader.readAsText(file);
+  e.target.value="";
+}
+
+/* ---------- 案件管理 ---------- */
+function catColor(cat){ const i=master.categories.indexOf(cat); return i>=0? CAT_PALETTE[i%CAT_PALETTE.length] : "#8A959E"; }
+function renderCases(){
+  const sel=$("filterOwner");
+  const cur=sel.value||"全員";
+  sel.innerHTML=`<option>全員</option>`+master.members.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
+  const showArchived=$("showArchived").checked;
+  const list=cases
+    .filter(c=>showArchived? true : !c.archived)
+    .filter(c=>sel.value==="全員"? true : c.owner===sel.value)
+    .sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+  $("casesList").innerHTML = list.length===0
+    ? `<div class="card" style="text-align:center; color:#3D4F5E; border-style:dashed;">案件がありません。「＋ 案件追加」から登録してください。</div>`
+    : list.map(cs=>`
+      <div class="card" style="border-left:4px solid ${catColor(cs.category)}; opacity:${cs.archived?0.55:1};">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <span class="chip" style="background:${catColor(cs.category)}18; border:1px solid ${catColor(cs.category)}44; color:${catColor(cs.category)};">${esc(cs.category)}</span>
+          <span style="font-size:14.5px; font-weight:800;">${esc(cs.name)}</span>
+          <span class="chip" style="background:#17242F14; border:1px solid #17242F33;">${esc(cs.status)}</span>
+          <span style="margin-left:auto; font-size:12px; color:#3D4F5E;">${esc(cs.owner)}｜${cs.manday||0}人日</span>
+        </div>
+        ${cs.nextPlan||cs.note? `<div style="margin-top:6px; font-size:12px; color:#3D4F5E;">${cs.nextPlan?`来週:${esc(cs.nextPlan)}<br>`:""}${cs.note?`備考:${esc(cs.note)}`:""}</div>`:""}
+        <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-small" data-case-edit="${cs.id}">編集</button>
+          <button class="btn btn-secondary btn-small" data-case-cm="${cs.id}">コメント${commentCounts[cs.id]?`(${commentCounts[cs.id]})`:""}</button>
+          <button class="btn btn-secondary btn-small btn-danger" data-case-ar="${cs.id}">${cs.archived?"戻す":"完了"}</button>
+        </div>
+      </div>`).join("");
+  document.querySelectorAll("[data-case-edit]").forEach(b=>b.addEventListener("click",()=>openCase(+b.dataset.caseEdit)));
+  document.querySelectorAll("[data-case-cm]").forEach(b=>b.addEventListener("click",()=>openComments(+b.dataset.caseCm)));
+  document.querySelectorAll("[data-case-ar]").forEach(b=>b.addEventListener("click",async ()=>{
+    const c=cases.find(x=>x.id==+b.dataset.caseAr); if(!c) return;
+    c.archived=!c.archived; c.updatedAt=Date.now();
+    await saveCaseRow(c);
+    await logAction(c.archived?"案件完了":"案件再開", c.name);
+    renderCases(); setStatus("保存しました");
+  }));
+}
+function openCase(id){
+  editingCase = id==null
+    ? {id:null, owner:me, category:master.categories[0], name:"", status:master.statuses[0], manday:"", nextPlan:"", note:"", archived:false}
+    : structuredClone(cases.find(x=>x.id===id));
+  $("caseModalTitle").textContent=editingCase.id? "案件を編集" : "案件を追加";
+  const opt=(arr,cur)=>arr.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("");
+  $("caseFormGrid").innerHTML=`
+    <div class="modal-cols">
+      <label style="font-size:12px; font-weight:700;">担当<select id="cfOwner" class="w100" style="margin-top:4px;">${opt(master.members, editingCase.owner)}</select></label>
+      <label style="font-size:12px; font-weight:700;">分類<select id="cfCat" class="w100" style="margin-top:4px;">${opt(master.categories, editingCase.category)}</select></label>
+    </div>
+    <label style="font-size:12px; font-weight:700;">案件名・顧客名<input type="text" id="cfName" class="w100" value="${esc(editingCase.name)}" style="margin-top:4px;"></label>
+    <div class="modal-cols">
+      <label style="font-size:12px; font-weight:700;">進捗ステータス<select id="cfStatus" class="w100" style="margin-top:4px;">${opt(master.statuses, editingCase.status)}</select></label>
+      <label style="font-size:12px; font-weight:700;">今週人日<input type="number" id="cfManday" class="w100" value="${esc(editingCase.manday)}" min="0" step="0.5" style="margin-top:4px;"></label>
+    </div>
+    <label style="font-size:12px; font-weight:700;">来週の予定<input type="text" id="cfNext" class="w100" value="${esc(editingCase.nextPlan)}" style="margin-top:4px;"></label>
+    <label style="font-size:12px; font-weight:700;">備考<input type="text" id="cfNote" class="w100" value="${esc(editingCase.note)}" style="margin-top:4px;"></label>`;
+  $("caseModal").classList.add("show");
+}
+async function saveCase(){
+  editingCase.owner=$("cfOwner").value;
+  editingCase.category=$("cfCat").value;
+  editingCase.name=$("cfName").value.trim();
+  editingCase.status=$("cfStatus").value;
+  editingCase.manday=$("cfManday").value;
+  editingCase.nextPlan=$("cfNext").value;
+  editingCase.note=$("cfNote").value;
+  if(!editingCase.name){ alert("案件名を入力してください。"); return; }
+  const isNew=!editingCase.id;
+  if(isNew) editingCase.id=Date.now();
+  editingCase.updatedAt=Date.now();
+  const ok=await saveCaseRow(editingCase);
+  if(ok) await logAction(isNew?"案件追加":"案件更新", `${editingCase.name}(${editingCase.status})`);
+  $("caseModal").classList.remove("show");
+  await loadCases(); renderCases();
+  setStatus(ok?"保存しました":"保存失敗", ok);
+}
+
+/* ---------- コメント ---------- */
+async function openComments(caseId){
+  commentCaseId=caseId;
+  const c=cases.find(x=>x.id===caseId);
+  $("commentModalTitle").textContent=`コメント:${c? c.name:""}`;
+  await renderComments();
+  $("commentModal").classList.add("show");
+}
+async function renderComments(){
+  const {data}=await sb.from("comments").select("*").eq("case_id",commentCaseId).order("id",{ascending:true});
+  $("commentList").innerHTML=(data||[]).length===0
+    ? `<div style="color:#6B7A87; font-size:12.5px;">まだコメントがありません。</div>`
+    : data.map(cm=>`
+      <div class="comment-item">
+        <div class="comment-meta">${esc(cm.author)}・${fmtDT(cm.created_at)}</div>
+        <div style="white-space:pre-wrap;">${esc(cm.content)}</div>
+      </div>`).join("");
+  $("commentList").scrollTop=$("commentList").scrollHeight;
+}
+async function postComment(){
+  const content=$("commentInput").value.trim(); if(!content) return;
+  await sb.from("comments").insert({case_id:commentCaseId, author:me, content});
+  $("commentInput").value="";
+  const c=cases.find(x=>x.id===commentCaseId);
+  await logAction("コメント", `${c?c.name:""}:${content.slice(0,30)}`);
+  commentCounts[commentCaseId]=(commentCounts[commentCaseId]||0)+1;
+  await renderComments(); renderCases();
+}
+
+/* ---------- 連絡事項・既読 ---------- */
+async function postAnnouncement(){
+  const content=$("annInput").value.trim(); if(!content) return;
+  await sb.from("announcements").insert({author:me, content, reads:[me]});
+  $("annInput").value="";
+  await logAction("連絡事項投稿", content.slice(0,40));
+  await loadAnnouncements(); renderFeed(); refreshFeedBadge();
+}
+function renderFeed(){
+  $("annList").innerHTML = announcements.length===0
+    ? `<div class="card" style="text-align:center; color:#3D4F5E; border-style:dashed;">連絡事項はまだありません。</div>`
+    : announcements.map(a=>{
+      const reads=a.reads||[];
+      const unreadByMe=!reads.includes(me);
+      return `
+      <div class="card feed-item">
+        <div class="feed-meta">
+          ${unreadByMe? '<span class="unread-dot"></span>':""}
+          <strong style="color:#17242F;">${esc(a.author)}</strong>
+          <span>${fmtDT(a.created_at)}</span>
+          <span class="read-chip">既読 ${reads.length}/${master.members.length}:${esc(reads.join("、")||"なし")}</span>
+        </div>
+        <div style="margin-top:6px; white-space:pre-wrap; font-size:13.5px;">${esc(a.content)}</div>
+        <div style="margin-top:8px; display:flex; gap:8px;">
+          ${unreadByMe? `<button class="btn btn-primary btn-small" data-ann-read="${a.id}">既読にする</button>`:""}
+          ${a.author===me? `<button class="btn btn-secondary btn-small btn-danger" data-ann-del="${a.id}">削除</button>`:""}
+        </div>
+      </div>`;
+    }).join("");
+  document.querySelectorAll("[data-ann-read]").forEach(b=>b.addEventListener("click",async ()=>{
+    const a=announcements.find(x=>x.id==+b.dataset.annRead); if(!a) return;
+    const reads=Array.from(new Set([...(a.reads||[]), me]));
+    await sb.from("announcements").update({reads}).eq("id",a.id);
+    await loadAnnouncements(); renderFeed(); refreshFeedBadge();
+  }));
+  document.querySelectorAll("[data-ann-del]").forEach(b=>b.addEventListener("click",async ()=>{
+    if(!confirm("この連絡事項を削除しますか?")) return;
+    await sb.from("announcements").delete().eq("id",+b.dataset.annDel);
+    await loadAnnouncements(); renderFeed(); refreshFeedBadge();
+  }));
+}
+async function refreshFeedBadge(){
+  if(!sb||!me) return;
+  const {data}=await sb.from("announcements").select("id,reads").order("id",{ascending:false}).limit(30);
+  const unread=(data||[]).filter(a=>!(a.reads||[]).includes(me)).length;
+  $("feedBadge").style.display=unread? "block":"none";
+  $("feedBadge").textContent=unread;
+}
+async function renderAudit(){
+  const {data}=await sb.from("audit_log").select("*").order("id",{ascending:false}).limit(50);
+  $("auditList").innerHTML=(data||[]).length===0
+    ? `<div style="color:#6B7A87; font-size:12.5px;">履歴はまだありません。</div>`
+    : data.map(r=>`
+      <div class="audit-row">
+        <span class="audit-time">${fmtDT(r.created_at)}</span>
+        <strong>${esc(r.author)}</strong>
+        <span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3;">${esc(r.action)}</span>
+        <span style="color:#3D4F5E;">${esc(r.detail||"")}</span>
+      </div>`).join("");
+}
+
+/* ---------- 日報(Teams取込) ---------- */
+let msalApp=null, graphToken=null;
+const GRAPH_SCOPES=["ChannelMessage.Read.All","Team.ReadBasic.All","Channel.ReadBasic.All"];
+function teamsCfgOk(){ return !!(settings.teamsTenantId && settings.teamsClientId); }
+function getMsal(){
+  if(!msalApp){
+    msalApp=new msal.PublicClientApplication({
+      auth:{ clientId:settings.teamsClientId, authority:`https://login.microsoftonline.com/${settings.teamsTenantId}`, redirectUri: location.origin + location.pathname },
+      cache:{ cacheLocation:"localStorage" }
+    });
+  }
+  return msalApp;
+}
+async function graphLogin(interactive){
+  const app=getMsal();
+  let acct=app.getAllAccounts()[0]||null;
+  if(acct){
+    try{ const r=await app.acquireTokenSilent({scopes:GRAPH_SCOPES, account:acct}); graphToken=r.accessToken; return true; }catch(e){}
+  }
+  if(!interactive) return false;
+  const r=await app.loginPopup({scopes:GRAPH_SCOPES});
+  const r2=await app.acquireTokenSilent({scopes:GRAPH_SCOPES, account:r.account}).catch(()=>null);
+  graphToken=(r2&&r2.accessToken)||r.accessToken||null;
+  return !!graphToken;
+}
+async function graphGet(url){
+  const r=await fetch(url,{headers:{Authorization:`Bearer ${graphToken}`}});
+  if(!r.ok){ const t=await r.text(); throw new Error(`Graph ${r.status}:${t.slice(0,140)}`); }
+  return r.json();
+}
+function showImportMsg(t, ok=true){
+  const el=$("teamsImportMsg");
+  el.style.display="block";
+  el.className="alert "+(ok?"alert-info":"alert-error");
+  el.textContent=t;
+}
+function parseNippo(text){
+  const t=text.match(/【D-WOLF工事日誌[_＿]?\s*([^】]+)】/); if(!t) return null;
+  let name=t[1].replace(/[\s　]+/g,"");
+  const hit=master.members.find(x=>x.replace(/[\s　]+/g,"")===name);
+  if(hit) name=hit;
+  const d=text.match(/作業日[：:]\s*(\d{4})[\/年.\-](\d{1,2})[\/月.\-](\d{1,2})/);
+  if(!d) return null;
+  const date=`${d[1]}-${String(+d[2]).padStart(2,"0")}-${String(+d[3]).padStart(2,"0")}`;
+  return {name, date, content:text};
+}
+async function importTeamsNippo(interactive=true){
+  if(!teamsCfgOk()||!settings.teamsChannelId){
+    if(interactive) showImportMsg("設定タブで「Teams日報取込設定」を完了してください。", false);
+    return 0;
+  }
+  try{
+    const ok=await graphLogin(interactive);
+    if(!ok){ if(interactive) showImportMsg("Microsoftサインインが必要です。もう一度ボタンを押してください。", false); return 0; }
+    let url=`https://graph.microsoft.com/v1.0/teams/${settings.teamsTeamId}/channels/${settings.teamsChannelId}/messages?$top=50`;
+    let msgs=[];
+    for(let i=0;i<3&&url;i++){ const j=await graphGet(url); msgs=msgs.concat(j.value||[]); url=j["@odata.nextLink"]||null; }
+    const rows=[];
+    for(const m of msgs){
+      if(m.messageType&&m.messageType!=="message") continue;
+      const div=document.createElement("div"); div.innerHTML=m.body?.content||"";
+      const text=div.innerText.replace(/\u00a0/g," ").trim();
+      const p=parseNippo(text); if(!p) continue;
+      rows.push({author:p.name, report_date:p.date, content:p.content, teams_msg_id:m.id, teams_sent:true});
+    }
+    if(rows.length){
+      const {error}=await sb.from("nippo").upsert(rows,{onConflict:"teams_msg_id", ignoreDuplicates:true});
+      if(error){ if(interactive) showImportMsg("保存エラー:"+error.message, false); return 0; }
+    }
+    if(interactive) showImportMsg(`同期完了:日報形式の投稿 ${rows.length}件を確認しました(取込済みは自動スキップ)。`);
+    if(rows.length) await logAction("Teams日報取込", `${rows.length}件同期`);
+    return rows.length;
+  }catch(e){
+    if(interactive) showImportMsg("取込エラー:"+(e.message||e), false);
+    return 0;
+  }
+}
+async function renderNippo(autoImport=true){
+  $("nippoDate").value=todayStr();
+  $("nippoTeamsState").textContent="";
+  const sel=$("nippoFilter"); const cur=sel.value||"全員";
+  sel.innerHTML=`<option>全員</option>`+master.members.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
+  await renderNippoList();
+  if(autoImport && teamsCfgOk() && settings.teamsChannelId){
+    const n=await importTeamsNippo(false);
+    if(n>0) await renderNippoList();
+  }
+}
+async function renderNippoList(){
+  const since=new Date(); since.setDate(since.getDate()-10);
+  let q=sb.from("nippo").select("*").gte("report_date", since.toISOString().slice(0,10)).order("report_date",{ascending:false}).order("id",{ascending:false});
+  const f=$("nippoFilter").value;
+  if(f&&f!=="全員") q=q.eq("author",f);
+  const {data}=await q;
+  $("nippoList").innerHTML=(data||[]).length===0
+    ? `<div class="card" style="text-align:center; color:#3D4F5E; border-style:dashed;">直近10日の日報はまだありません。「Teamsから取込」を押してください。</div>`
+    : data.map(n=>`
+      <div class="card">
+        <div class="feed-meta"><strong style="color:#17242F;">${esc(n.author)}</strong><span>作業日:${esc(n.report_date)}</span>${n.teams_msg_id? '<span class="read-chip">Teams取込</span>':""}</div>
+        <div style="margin-top:6px; white-space:pre-wrap; font-size:13.5px;">${esc(n.content)}</div>
+      </div>`).join("");
+}
+async function teamsConnectPick(){
+  if(!teamsCfgOk()){ alert("テナントIDとクライアントIDを先に入力してください。"); return; }
+  try{
+    const ok=await graphLogin(true); if(!ok) return;
+    const j=await graphGet("https://graph.microsoft.com/v1.0/me/joinedTeams");
+    $("selTeam").innerHTML=(j.value||[]).map(t=>`<option value="${esc(t.id)}" ${t.id===settings.teamsTeamId?"selected":""}>${esc(t.displayName)}</option>`).join("");
+    await loadChannelsForTeam();
+    $("selTeam").onchange=loadChannelsForTeam;
+    $("teamsPickArea").style.display="block";
+  }catch(e){ alert("接続エラー:"+(e.message||e)); }
+}
+async function loadChannelsForTeam(){
+  const tid=$("selTeam").value; if(!tid) return;
+  const j=await graphGet(`https://graph.microsoft.com/v1.0/teams/${tid}/channels`);
+  $("selChannel").innerHTML=(j.value||[]).map(c=>`<option value="${esc(c.id)}" ${c.id===settings.teamsChannelId?"selected":""}>${esc(c.displayName)}</option>`).join("");
+}
+async function postNippo(){
+  const content=$("nippoInput").value.trim();
+  const date=$("nippoDate").value||todayStr();
+  if(!content){ alert("日報の内容を入力してください。"); return; }
+  let teamsSent=false;
+  if(settings.teamsWebhook){
+    try{
+      await fetch(settings.teamsWebhook,{
+        method:"POST", mode:"no-cors",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          type:"message",
+          attachments:[{
+            contentType:"application/vnd.microsoft.card.adaptive",
+            content:{
+              "$schema":"http://adaptivecards.io/schemas/adaptive-card.json",
+              type:"AdaptiveCard", version:"1.4",
+              body:[
+                {type:"TextBlock", weight:"Bolder", size:"Medium", text:`【日報】${me}　${date}`},
+                {type:"TextBlock", text:content, wrap:true}
+              ]
+            }
+          }]
+        })
       });
-      document.getElementById("todoList").innerHTML = html;
-    }
+      teamsSent=true;
+    }catch(e){ console.error(e); }
+  }
+  await sb.from("nippo").insert({author:me, report_date:date, content, teams_sent:teamsSent});
+  await logAction("日報送信", `${date}`);
+  $("nippoInput").value="";
+  await renderNippo();
+  setStatus("日報を送信しました");
+}
 
-    function addTodo() {
-      const input = document.getElementById("todoInput");
-      const text = input.value.trim();
-      if (!text) return;
-      week.todos[me].push({ id: Date.now(), text, done: false });
-      input.value = "";
-      renderTodos();
-      queueSave("week");
-    }
+/* ---------- 会議モード ---------- */
+function busyColor(level){ const i=master.busyLevels.indexOf(level); return i>=0? BUSY_PALETTE[i%BUSY_PALETTE.length] : "#B0B7BD"; }
+function mandaySum(m){ return cases.filter(c=>!c.archived&&c.owner===m).reduce((a,c)=>a+(parseFloat(c.manday)||0),0); }
+function renderMeeting(){
+  $("meetingList").innerHTML = master.members.map(m=>{
+    const total=mandaySum(m); const over=total>=master.mandayLimit;
+    return `
+    <div class="card">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span style="width:10px; height:10px; border-radius:50%; background:${busyColor(week.busy[m])}; box-shadow:0 0 0 3px ${busyColor(week.busy[m])}22;"></span>
+        <span style="font-weight:900; font-size:15px;">${esc(m)}</span>
+        <span style="font-size:12.5px; color:${over?"#C53030":"#3D4F5E"}; font-weight:${over?800:400};">合計 ${total.toFixed(1)} 人日${over?"(超過)":""}</span>
+        <select data-busy="${esc(m)}" style="margin-left:auto;">
+          <option value="">繁忙度を選択</option>
+          ${master.busyLevels.map(b=>`<option value="${esc(b)}" ${week.busy[m]===b?"selected":""}>${esc(b)}</option>`).join("")}
+        </select>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+        <div><label style="font-size:12px; font-weight:700;">手伝ってほしいこと</label>
+          <textarea rows="2" data-hneed="${esc(m)}" style="margin-top:4px; background:${week.helpNeed[m]?"#FDF1EC":"#fff"};">${esc(week.helpNeed[m]||"")}</textarea></div>
+        <div><label style="font-size:12px; font-weight:700;">手伝えること</label>
+          <textarea rows="2" data-hgive="${esc(m)}" style="margin-top:4px;">${esc(week.helpGive[m]||"")}</textarea></div>
+      </div>
+    </div>`;
+  }).join("");
+  document.querySelectorAll("[data-busy]").forEach(s=>s.addEventListener("change",()=>{ week.busy[s.dataset.busy]=s.value; queueSave("week"); }));
+  document.querySelectorAll("[data-hneed]").forEach(t=>t.addEventListener("change",()=>{ week.helpNeed[t.dataset.hneed]=t.value; queueSave("week"); }));
+  document.querySelectorAll("[data-hgive]").forEach(t=>t.addEventListener("change",()=>{ week.helpGive[t.dataset.hgive]=t.value; queueSave("week"); }));
+  $("meetingNote").value=week.meetingNote||"";
+  $("decisions").value=week.decisions||"";
+}
 
-    function toggleTodo(id) {
-      const t = week.todos[me].find((x) => x.id === id);
-      if (t) t.done = !t.done;
-      renderTodos();
-      queueSave("week");
-    }
+/* ---------- 社長報告 ---------- */
+function renderReport(){
+  const dates=weekDates(monday);
+  const activeCases=cases.filter(c=>!c.archived);
+  const th=`border:1px solid #BBB; background:#EEF1F3; padding:4px 6px; font-size:10.5px;`;
+  const td=`border:1px solid #CCC; padding:4px 6px;`;
+  $("printArea").innerHTML=`
+  <div style="background:#fff; border:1px solid #DCE0E3; border-radius:8px; padding:22px 26px; font-size:12px; line-height:1.55; color:#111;">
+    <div style="border-bottom:3px solid #17242F; padding-bottom:8px; margin-bottom:10px;">
+      <div style="font-size:10px; letter-spacing:2px; color:#E8590C; font-weight:800;">D-WOLF WEEKLY REPORT</div>
+      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <h1 style="font-size:19px; font-weight:900; margin:0;">D-WOLF 週次業務報告</h1>
+        <span>${fmtJP(monday)}(月)〜${fmtJP(dates[4])}(金)</span>
+      </div>
+      <div style="font-size:11px; margin-top:3px;">宛先:代表取締役 宮﨑隆司 様　作成:${esc(master.manager)}</div>
+    </div>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">1. 稼働サマリー</h2>
+    <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
+      <tr><th style="${th}">氏名</th><th style="${th}">合計人日</th><th style="${th}">案件数</th><th style="${th}">繁忙度</th><th style="${th}">応援が必要なこと</th></tr>
+      ${master.members.map(m=>{
+        const isMax=week.busy[m]&&master.busyLevels.indexOf(week.busy[m])===master.busyLevels.length-1;
+        return `<tr style="background:${isMax?"#FDECEC":""};">
+          <td style="${td}">${esc(m)}</td>
+          <td style="${td} text-align:center;">${mandaySum(m).toFixed(1)}</td>
+          <td style="${td} text-align:center;">${cases.filter(c=>!c.archived&&c.owner===m).length}</td>
+          <td style="${td} font-weight:700;">${esc(week.busy[m]||"―")}</td>
+          <td style="${td}">${esc(week.helpNeed[m]||"―")}</td></tr>`;
+      }).join("")}
+    </table>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">2. 週間スケジュール</h2>
+    <table style="border-collapse:collapse; width:100%; margin-bottom:10px; font-size:10.5px;">
+      <tr><th style="${th}">氏名</th>${DAYS.map((d,i)=>`<th style="${th}">${d} ${fmtShort(dates[i])}</th>`).join("")}</tr>
+      ${master.members.map(m=>`<tr><td style="${td} font-weight:700;">${esc(m)}</td>${DAYS.map((_,i)=>`<td style="${td} white-space:pre-wrap;">${esc((week.schedule[m]||[])[i]||"")}</td>`).join("")}</tr>`).join("")}
+    </table>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">3. 主な案件</h2>
+    <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
+      <tr><th style="${th}">担当</th><th style="${th}">分類</th><th style="${th}">案件名</th><th style="${th}">ステータス</th><th style="${th}">人日</th><th style="${th}">来週予定</th></tr>
+      ${activeCases.length===0? `<tr><td colspan="6" style="${td}">(今週の案件登録なし)</td></tr>` : activeCases.map(c=>`
+        <tr><td style="${td}">${esc(c.owner)}</td><td style="${td}">${esc(c.category)}</td><td style="${td}">${esc(c.name)}</td>
+        <td style="${td} text-align:center;">${esc(c.status)}</td><td style="${td} text-align:center;">${c.manday||0}</td><td style="${td}">${esc(c.nextPlan||"")}</td></tr>`).join("")}
+    </table>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">4. 決定事項</h2>
+    <div style="border:1px solid #CCC; border-radius:4px; padding:8px 10px; min-height:40px; white-space:pre-wrap;">${esc(week.decisions||"(記載なし)")}</div>
+  </div>`;
+}
 
-    function deleteTodo(id) {
-      week.todos[me] = week.todos[me].filter((x) => x.id !== id);
-      renderTodos();
-      queueSave("week");
-    }
+/* ---------- マスター管理 ---------- */
+function renderMaster(){
+  const listRow=(label, items, addId, removePrefix, colorFn)=>`
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:10px;">${label}</h3>
+      <div style="display:grid; gap:6px; margin-bottom:10px;">
+        ${items.map((v,i)=>`
+          <div style="display:flex; align-items:center; gap:8px; border:1px solid #DCE0E3; border-radius:6px; padding:6px 10px;">
+            ${colorFn? `<span style="width:10px; height:10px; border-radius:50%; background:${colorFn(i)};"></span>`:""}
+            <span style="flex:1; font-weight:600;">${esc(v)}</span>
+            <button class="btn btn-small btn-secondary btn-danger" data-rm="${removePrefix}|${esc(v)}">削除</button>
+          </div>`).join("")}
+      </div>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="${addId}" class="w100" placeholder="追加する名称を入力">
+        <button class="btn btn-primary" data-add="${addId}|${removePrefix}">追加</button>
+      </div>
+    </div>`;
+  $("masterPanel").innerHTML=`
+    ${listRow("メンバー", master.members, "newMember", "members", null)}
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:10px;">管理責任者</h3>
+      <select id="managerSelect">${master.members.map(m=>`<option ${m===master.manager?"selected":""}>${esc(m)}</option>`).join("")}</select>
+    </div>
+    ${listRow("案件分類", master.categories, "newCategory", "categories", (i)=>CAT_PALETTE[i%CAT_PALETTE.length])}
+    ${listRow("進捗ステータス(順序どおり)", master.statuses, "newStatus", "statuses", null)}
+    ${listRow("繁忙度(軽い→重いの順)", master.busyLevels, "newBusy", "busyLevels", (i)=>BUSY_PALETTE[i%BUSY_PALETTE.length])}
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:10px;">週の人日上限(超過警告のしきい値)</h3>
+      <input type="number" id="mandayLimit" value="${master.mandayLimit}" min="1" step="0.5" style="width:120px;">
+    </div>
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:10px;">共通パスワード変更</h3>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <input type="text" id="newPw" placeholder="新しいパスワード" style="flex:1; min-width:200px;">
+        <button class="btn btn-primary" id="btnChangePw">変更する</button>
+      </div>
+      <div style="font-size:11.5px; color:#6B7A87; margin-top:6px;">変更後は全メンバーに新パスワードを共有してください。</div>
+    </div>`;
+  document.querySelectorAll("[data-rm]").forEach(b=>b.addEventListener("click",async ()=>{
+    const [field,val]=b.dataset.rm.split("|");
+    if(!confirm(`「${val}」を削除しますか?\n(過去データは残ります)`)) return;
+    master[field]=master[field].filter(x=>x!==val);
+    if(field==="members"&&master.manager===val) master.manager=master.members[0]||"";
+    await kvSet("master",master); await logAction("マスター変更",`${field}から${val}を削除`);
+    renderMaster();
+  }));
+  document.querySelectorAll("[data-add]").forEach(b=>b.addEventListener("click",async ()=>{
+    const [inputId,field]=b.dataset.add.split("|");
+    const val=$(inputId).value.trim();
+    if(!val||master[field].includes(val)) return;
+    master[field].push(val); $(inputId).value="";
+    await kvSet("master",master); await logAction("マスター変更",`${field}に${val}を追加`);
+    renderMaster();
+  }));
+  $("managerSelect").addEventListener("change",async ()=>{ master.manager=$("managerSelect").value; await kvSet("master",master); });
+  $("mandayLimit").addEventListener("change",async ()=>{ master.mandayLimit=parseFloat($("mandayLimit").value)||5; await kvSet("master",master); });
+  $("btnChangePw").addEventListener("click",async ()=>{
+    const pw=$("newPw").value.trim();
+    if(pw.length<4){ alert("4文字以上にしてください。"); return; }
+    await kvSet("app_password",pw); await logAction("設定変更","共通パスワードを変更");
+    alert("パスワードを変更しました。全メンバーに共有してください。");
+    $("newPw").value="";
+  });
+}
 
-    // ========== ICS パーサ ==========
-    function parseICS(text) {
-      const lines = text.split(/\r?\n/);
-      const unfolded = [];
-      for (const ln of lines) {
-        if ((ln.startsWith(" ") || ln.startsWith("\t")) && unfolded.length) unfolded[unfolded.length - 1] += ln.slice(1);
-        else unfolded.push(ln);
-      }
-      const events = [];
-      let cur = null;
-      for (const ln of unfolded) {
-        if (ln === "BEGIN:VEVENT") cur = {};
-        else if (ln === "END:VEVENT") { if (cur && cur.start) events.push(cur); cur = null; }
-        else if (cur) {
-          if (ln.startsWith("DTSTART")) {
-            const v = ln.split(":").slice(1).join(":").trim();
-            const y = +v.slice(0, 4), mo = +v.slice(4, 6) - 1, da = +v.slice(6, 8);
-            let h = 0, mi = 0;
-            if (v.length >= 13) { h = +v.slice(9, 11); mi = +v.slice(11, 13); }
-            let dt = new Date(y, mo, da, h, mi);
-            if (v.endsWith("Z")) dt = new Date(dt.getTime() + 9 * 3600 * 1000);
-            cur.start = dt;
-          } else if (ln.startsWith("SUMMARY")) {
-            cur.summary = ln.split(":").slice(1).join(":").replace(/\\,/g, ",").trim();
-          }
-        }
-      }
-      return events;
-    }
-
-    function importICS(e) {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const events = parseICS(reader.result);
-        const start = new Date(monday), end = new Date(monday);
-        end.setDate(end.getDate() + 5);
-        const hits = events.filter((e) => e.start >= start && e.start < end);
-        if (!hits.length) { alert("この週に該当する予定が見つかりませんでした。"); return; }
-        hits.forEach((e) => {
-          const idx = Math.floor((e.start - start) / 86400000);
-          if (idx < 0 || idx > 4) return;
-          const label = `${String(e.start.getHours()).padStart(2, "0")}:${String(e.start.getMinutes()).padStart(2, "0")} ${e.summary}`;
-          const cell = week.schedule[me][idx];
-          if (!cell.includes(label)) week.schedule[me][idx] = cell ? cell + "\n" + label : label;
-        });
-        renderScheduleTable();
-        queueSave("week");
-        alert(`${hits.length}件の予定を取り込みました。`);
-      };
-      reader.readAsText(file);
-    }
-
-    // ========== 案件管理 ==========
-    async function renderCases() {
-      const filterOwner = document.getElementById("filterOwner").value || "全員";
-      const showArchived = document.getElementById("showArchived").checked;
-      const activeCases = cases.filter((c) => (showArchived ? true : !c.archived))
-        .filter((c) => (filterOwner === "全員" ? true : c.owner === filterOwner))
-        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-
-      const catColor = (cat) => { const i = master.categories.indexOf(cat); return i >= 0 ? CAT_PALETTE[i % CAT_PALETTE.length] : "#8A959E"; };
-
-      let html = "";
-      if (activeCases.length === 0) {
-        html = `<div class="card" style="text-align: center; color: #3D4F5E; border: 1px dashed #DCE0E3;">案件がありません。「＋ 案件追加」から登録してください。</div>`;
-      } else {
-        html = activeCases.map((cs) => `
-          <div class="card" style="border-left: 4px solid ${catColor(cs.category)}; opacity: ${cs.archived ? 0.55 : 1};">
-            <div class="card-header">
-              <span class="chip" style="background: ${catColor(cs.category)}18; border: 1px solid ${catColor(cs.category)}44; color: ${catColor(cs.category)};">${cs.category}</span>
-              <span class="card-title">${cs.name}</span>
-              <span class="chip" style="background: #17242F18; border: 1px solid #17242F44; color: #17242F;">${cs.status}</span>
-              <span style="margin-left: auto; font-size: 12px; color: #3D4F5E;">${cs.owner}｜${cs.manday || 0}人日</span>
-            </div>
-            ${cs.nextPlan || cs.note ? `<div style="margin-top: 6px; font-size: 12px; color: #3D4F5E;">${cs.nextPlan ? `来週:${cs.nextPlan}<br>` : ""}${cs.note ? `備考:${cs.note}` : ""}</div>` : ""}
-            <div style="margin-top: 8px; display: flex; gap: 8px;">
-              <button class="btn btn-secondary" onclick="editCase(${cs.id})">編集</button>
-              <button class="btn btn-secondary btn-danger" onclick="toggleArchive(${cs.id})">${cs.archived ? "戻す" : "完了"}</button>
-            </div>
-          </div>
-        `).join("");
-      }
-      document.getElementById("casesList").innerHTML = html;
-    }
-
-    function editCase(id) {
-      if (id === null) {
-        editingCase = { id: null, owner: me, category: master.categories[0], name: "", status: master.statuses[0], manday: "", nextPlan: "", note: "", custom: {}, archived: false };
-      } else {
-        editingCase = structuredClone(cases.find((x) => x.id === id)) || null;
-      }
-      document.getElementById("caseModalTitle").textContent = editingCase.id ? "案件を編集" : "案件を追加";
-      
-      let html = `
+/* ---------- 設定 ---------- */
+function renderSettings(){
+  $("settingsPanel").innerHTML=`
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:8px;">Teams 日報取込設定(Graph API)</h3>
+      <ol style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px; margin-bottom:10px;">
+        <li>Entra ID(Azure AD)でアプリ登録し、テナントIDとクライアントIDを取得(手順書参照)</li>
+        <li>下の2欄に貼り付け(自動保存)</li>
+        <li>「サインインしてチーム/チャネルを選択」→ D-WOLFチーム → 日報チャネル → 保存</li>
+      </ol>
+      <div class="modal-cols">
+        <label style="font-size:12px; font-weight:700;">テナントID<input type="text" id="teamsTenantId" class="w100" value="${esc(settings.teamsTenantId||"")}" style="margin-top:4px;"></label>
+        <label style="font-size:12px; font-weight:700;">クライアントID<input type="text" id="teamsClientId" class="w100" value="${esc(settings.teamsClientId||"")}" style="margin-top:4px;"></label>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; align-items:center;">
+        <button class="btn btn-secondary" id="btnTeamsConnect">サインインしてチーム/チャネルを選択</button>
+        <span style="font-size:12px; color:#2F6A4F;" id="teamsCfgState">${settings.teamsChannelId? `設定済み:${esc(settings.teamsTeamName||"")} / ${esc(settings.teamsChannelName||"")}` : "未設定"}</span>
+      </div>
+      <div id="teamsPickArea" style="display:none; margin-top:10px;">
         <div class="modal-cols">
-          <div><label style="font-size: 12px; font-weight: 700;">担当<select id="caseOwner" style="width: 100%; margin-top: 4px;"><option>${editingCase.owner}</option>${master.members.filter((m) => m !== editingCase.owner).map((m) => `<option>${m}</option>`).join("")}</select></label></div>
-          <div><label style="font-size: 12px; font-weight: 700;">分類<select id="caseCategory" style="width: 100%; margin-top: 4px;"><option>${editingCase.category}</option>${master.categories.filter((c) => c !== editingCase.category).map((c) => `<option>${c}</option>`).join("")}</select></label></div>
+          <label style="font-size:12px; font-weight:700;">チーム<select id="selTeam" class="w100" style="margin-top:4px;"></select></label>
+          <label style="font-size:12px; font-weight:700;">チャネル<select id="selChannel" class="w100" style="margin-top:4px;"></select></label>
         </div>
-        <label style="font-size: 12px; font-weight: 700;">案件名・顧客名<input type="text" id="caseName" value="${editingCase.name}" style="margin-top: 4px;"></label>
-        <div class="modal-cols">
-          <div><label style="font-size: 12px; font-weight: 700;">進捗ステータス<select id="caseStatus" style="width: 100%; margin-top: 4px;"><option>${editingCase.status}</option>${master.statuses.filter((s) => s !== editingCase.status).map((s) => `<option>${s}</option>`).join("")}</select></label></div>
-          <div><label style="font-size: 12px; font-weight: 700;">今週人日<input type="number" id="caseManday" value="${editingCase.manday}" min="0" max="${master.mandayLimit}" step="0.5" style="margin-top: 4px;"></label></div>
-        </div>
-        <label style="font-size: 12px; font-weight: 700;">来週の予定<input type="text" id="caseNextPlan" value="${editingCase.nextPlan}" style="margin-top: 4px;"></label>
-        <label style="font-size: 12px; font-weight: 700;">備考<input type="text" id="caseNote" value="${editingCase.note}" style="margin-top: 4px;"></label>
-      `;
-      document.getElementById("caseFormGrid").innerHTML = html;
-      document.getElementById("caseModal").classList.add("show");
-    }
+        <button class="btn btn-primary" id="btnTeamsSavePick" style="margin-top:10px;">この設定で保存</button>
+      </div>
+      <div style="font-size:11.5px; color:#6B7A87; margin-top:8px;">取込対象:本文が【D-WOLF工事日誌_氏名】形式の投稿。氏名がマスターのメンバー名と一致すると人別に紐付きます(スペース有無は無視)。</div>
+    </div>
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:8px;">(任意)アプリ→Teams投稿(Webhook URL)</h3>
+      <ol style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px; margin-bottom:10px;">
+        <li>Teamsの日報チャネル右上「…」→「ワークフロー」を開く</li>
+        <li>「<strong>Webhook 要求を受信したときにチャネルに投稿する</strong>」テンプレートを追加</li>
+        <li>作成完了時に表示される URL をコピーして下に貼り付け</li>
+      </ol>
+      <input type="text" id="teamsWebhook" class="w100" placeholder="https://prod-xx.japaneast.logic.azure.com/workflows/…" value="${esc(settings.teamsWebhook||"")}">
+      <div style="font-size:11.5px; color:#6B7A87; margin-top:6px;">貼り付けると自動保存。日報タブから送信すると、このチャネルに自動投稿されます。</div>
+    </div>
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:8px;">GoogleカレンダーICS URL(メモ)</h3>
+      <ol style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px; margin-bottom:10px;">
+        <li>PCのGoogleカレンダー → 設定 → マイカレンダー → 自分のカレンダー</li>
+        <li>「カレンダーの統合」の「iCal形式の公開URL」をコピーして下に控える</li>
+        <li>取込時はURLをブラウザで開いて .ics をダウンロード → 週間ボードの「ICSファイル取込」</li>
+      </ol>
+      <div id="icsPanel" style="display:grid; gap:10px;">
+        ${master.members.map(m=>`
+          <label style="font-size:12px; font-weight:700;">${esc(m)}
+            <input type="text" class="w100 ics-url" data-ics="${esc(m)}" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" value="${esc((settings.icsUrls||{})[m]||"")}" style="margin-top:4px;">
+          </label>`).join("")}
+      </div>
+      <div style="margin-top:10px; font-size:12px; color:#B54747;">注意:このURLはメンバー全員に見える前提で登録してください。</div>
+    </div>
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:8px;">運用ルール</h3>
+      <ul style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px;">
+        <li>毎日:日報タブから日報を送信(Teamsにも自動投稿)</li>
+        <li>毎週金曜:会議モードで繁忙度・応援依頼を更新 → 社長報告を印刷/PDF化</li>
+        <li>連絡事項は必ず「既読にする」を押す(誰が読んだか全員に見えます)</li>
+        <li>同時編集時は、自分の欄のみ編集してください</li>
+      </ul>
+    </div>`;
+  $("teamsWebhook").addEventListener("change",()=>{ settings.teamsWebhook=$("teamsWebhook").value.trim(); queueSave("settings"); });
+  $("teamsTenantId").addEventListener("change",()=>{ settings.teamsTenantId=$("teamsTenantId").value.trim(); msalApp=null; queueSave("settings"); });
+  $("teamsClientId").addEventListener("change",()=>{ settings.teamsClientId=$("teamsClientId").value.trim(); msalApp=null; queueSave("settings"); });
+  $("btnTeamsConnect").addEventListener("click", teamsConnectPick);
+  $("btnTeamsSavePick").addEventListener("click", ()=>{
+    const t=$("selTeam"), c=$("selChannel");
+    settings.teamsTeamId=t.value; settings.teamsTeamName=t.selectedOptions[0]?.text||"";
+    settings.teamsChannelId=c.value; settings.teamsChannelName=c.selectedOptions[0]?.text||"";
+    queueSave("settings");
+    $("teamsCfgState").textContent=`設定済み:${settings.teamsTeamName} / ${settings.teamsChannelName}`;
+    $("teamsPickArea").style.display="none";
+  });
+  document.querySelectorAll(".ics-url").forEach(inp=>inp.addEventListener("change",()=>{
+    settings.icsUrls=settings.icsUrls||{};
+    settings.icsUrls[inp.dataset.ics]=inp.value.trim();
+    queueSave("settings");
+  }));
+}
 
-    function saveCase() {
-      editingCase.owner = document.getElementById("caseOwner").value;
-      editingCase.category = document.getElementById("caseCategory").value;
-      editingCase.name = document.getElementById("caseName").value.trim();
-      editingCase.status = document.getElementById("caseStatus").value;
-      editingCase.manday = document.getElementById("caseManday").value;
-      editingCase.nextPlan = document.getElementById("caseNextPlan").value;
-      editingCase.note = document.getElementById("caseNote").value;
-
-      if (!editingCase.name) { alert("案件名を入力してください。"); return; }
-
-      if (editingCase.id) {
-        const i = cases.findIndex((x) => x.id === editingCase.id);
-        if (i >= 0) cases[i] = { ...editingCase, updatedAt: Date.now() };
-      } else {
-        cases.push({ ...editingCase, id: Date.now(), updatedAt: Date.now() });
-      }
-
-      closeCaseModal();
-      renderCases();
-      queueSave("cases");
-    }
-
-    function closeCaseModal() {
-      document.getElementById("caseModal").classList.remove("show");
-      editingCase = null;
-    }
-
-    function toggleArchive(id) {
-      const c = cases.find((x) => x.id === id);
-      if (c) { c.archived = !c.archived; c.updatedAt = Date.now(); }
-      renderCases();
-      queueSave("cases");
-    }
-
-    // ========== 会議モード ==========
-    function renderMeeting() {
-      const busyColor = (level) => { const i = master.busyLevels.indexOf(level); return i >= 0 ? BUSY_PALETTE[i % BUSY_PALETTE.length] : "#B0B7BD"; };
-      const mandaySum = (m) => cases.filter((c) => !c.archived && c.owner === m).reduce((a, c) => a + (parseFloat(c.manday) || 0), 0);
-
-      let html = "";
-      master.members.forEach((m) => {
-        const total = mandaySum(m);
-        const over = total >= master.mandayLimit;
-        html += `
-          <div class="card">
-            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-              <span class="busy-dot" style="background: ${busyColor(week.busy[m])}; width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 3px ${busyColor(week.busy[m])}22;"></span>
-              <span style="font-weight: 900; font-size: 15px;">${m}</span>
-              <span style="font-size: 12.5px; color: ${over ? "#C53030" : "#3D4F5E"}; font-weight: ${over ? 800 : 400};">合計 ${total.toFixed(1)} 人日${over ? `(超過)` : ""}</span>
-              <select value="${week.busy[m] || ""}" onchange="updateBusy('${m}', this.value)" style="margin-left: auto; width: auto;">
-                <option value="">繁忙度を選択</option>
-                ${master.busyLevels.map((b) => `<option value="${b}" ${week.busy[m] === b ? "selected" : ""}>${b}</option>`).join("")}
-              </select>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
-              <div>
-                <label style="font-size: 12px; font-weight: 700;">手伝ってほしいこと</label>
-                <textarea rows="2" value="${week.helpNeed[m] || ""}" onchange="week.helpNeed['${m}'] = this.value; queueSave('week');" style="margin-top: 4px; background: ${week.helpNeed[m] ? "#FDF1EC" : "#fff"};"></textarea>
-              </div>
-              <div>
-                <label style="font-size: 12px; font-weight: 700;">手伝えること</label>
-                <textarea rows="2" value="${week.helpGive[m] || ""}" onchange="week.helpGive['${m}'] = this.value; queueSave('week');" style="margin-top: 4px;"></textarea>
-              </div>
-            </div>
-          </div>
-        `;
-      });
-
-      html += `
-        <div class="section-header">
-          <span class="section-num">05</span>
-          <h2 class="section-title">会議メモ・決定事項</h2>
-        </div>
-        <div class="card">
-          <label style="font-size: 12px; font-weight: 700;">会議メモ</label>
-          <textarea id="meetingNoteInput" rows="4" style="margin-top: 4px;" onchange="week.meetingNote = this.value; queueSave('week');">${week.meetingNote}</textarea>
-          <label style="font-size: 12px; font-weight: 700; margin-top: 10px;">決定事項</label>
-          <textarea id="decisionsInput" rows="3" style="margin-top: 4px;" onchange="week.decisions = this.value; queueSave('week');">${week.decisions}</textarea>
-        </div>
-      `;
-
-      document.querySelector('[data-section="meeting"]').innerHTML = html;
-    }
-
-    function updateBusy(member, val) {
-      week.busy[member] = val;
-      queueSave("week");
-    }
-
-    // ========== 社長報告 ==========
-    function renderReport() {
-      const dates = weekDates(monday);
-      const mandaySum = (m) => cases.filter((c) => !c.archived && c.owner === m).reduce((a, c) => a + (parseFloat(c.manday) || 0), 0);
-      const activeCases = cases.filter((c) => !c.archived);
-
-      let html = `
-        <div style="background: #fff; border: 1px solid #DCE0E3; border-radius: 8px; padding: 22px 26px; font-size: 12px; line-height: 1.55; color: #111;">
-          <div style="border-bottom: 3px solid #17242F; padding-bottom: 8px; margin-bottom: 10px;">
-            <div style="font-size: 10px; letter-spacing: 2px; color: #E8590C; font-weight: 800;">D-WOLF WEEKLY REPORT</div>
-            <div style="display: flex; justify-content: space-between; align-items: baseline;">
-              <h1 style="font-size: 19px; font-weight: 900; margin: 0;">D-WOLF 週次業務報告</h1>
-              <span>${fmtJP(monday)}(月)〜${fmtJP(dates[4])}(金)</span>
-            </div>
-            <div style="font-size: 11px; margin-top: 3px;">宛先:代表取締役 宮﨑隆司 様　作成:${master.manager}</div>
-          </div>
-
-          <h2 style="font-size: 13px; font-weight: 800; border-left: 4px solid #17242F; padding-left: 8px; margin: 14px 0 6px;">1. 稼働サマリー</h2>
-          <table style="border-collapse: collapse; width: 100%; margin-bottom: 10px;">
-            <tr>
-              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">氏名</th>
-              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">合計人日</th>
-              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">案件数</th>
-              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">繁忙度</th>
-              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">応援が必要なこと</th>
-            </tr>
-            ${master.members.map((m) => {
-              const isMax = week.busy[m] && master.busyLevels.indexOf(week.busy[m]) === master.busyLevels.length - 1;
-              return `
-                <tr style="background: ${isMax ? "#FDECEC" : ""};">
-                  <td style="border: 1px solid #CCC; padding: 4px 6px;">${m}</td>
-                  <td style="border: 1px solid #CCC; padding: 4px 6px; text-align: center;">${mandaySum(m).toFixed(1)}</td>
-                  <td style="border: 1px solid #CCC; padding: 4px 6px; text-align: center;">${cases.filter((c) => !c.archived && c.owner === m).length}</td>
-                  <td style="border: 1px solid #CCC; padding: 4px 6px; font-weight: 700;">${week.busy[m] || "―"}</td>
-                  <td style="border: 1px solid #CCC; padding: 4px 6px;">${week.helpNeed[m] || "―"}</td>
-                </tr>
-              `;
-            }).join("")}
-          </table>
-
-          <h2 style="font-size: 13px; font-weight: 800; border-left: 4px solid #17242F; padding-left: 8px; margin: 14px 0 6px;">2. 週間スケジュール</h2>
-          <table style="border-collapse: collapse; width: 100%; margin-bottom: 10px; font-size: 10.5px;">
-            <tr>
-              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px;">氏名</th>
-              ${DAYS.map((d, i) => `<th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px;">${d} ${fmtShort(dates[i])}</th>`).join("")}
-            </tr>
-            ${master.members.map((m) => `
-              <tr>
-                <td style="border: 1px solid #CCC; padding: 4px 6px; font-weight: 700;">${m}</td>
-                ${DAYS.map((_, i) => `<td style="border: 1px solid #CCC; padding: 4px 6px; white-space: pre-wrap;">${(week.schedule[m] || [])[i] || ""}</td>`).join("")}
-              </tr>
-            `).join("")}
-          </table>
-
-          <h2 style="font-size: 13px; font-weight: 800; border-left: 4px solid #17242F; padding-left: 8px; margin: 14px 0 6px;">3. 主な案件</h2>
-          <table style="border-collapse: collapse; width: 100%; margin-bottom: 10px;">
-            <tr>
-              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">担当</th>
-              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">分類</th>
-              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">案件名</th>
-              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">ステータス</th>
-              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">人日</th>
-              <th style="border: 1px solid #BBB; background: #EEF1F3; padding: 4px 6px; font-size: 10.5px;">来週予定</th>
-            </tr>
-            ${activeCases.length === 0 ? `<tr><td colspan="6" style="border: 1px solid #CCC; padding: 4px 6px;">(今週の案件登録なし)</td></tr>` : activeCases.map((c) => `
-              <tr>
-                <td style="border: 1px solid #CCC; padding: 4px 6px;">${c.owner}</td>
-                <td style="border: 1px solid #CCC; padding: 4px 6px;">${c.category}</td>
-                <td style="border: 1px solid #CCC; padding: 4px 6px;">${c.name}</td>
-                <td style="border: 1px solid #CCC; padding: 4px 6px; text-align: center;">${c.status}</td>
-                <td style="border: 1px solid #CCC; padding: 4px 6px; text-align: center;">${c.manday || 0}</td>
-                <td style="border: 1px solid #CCC; padding: 4px 6px;">${c.nextPlan || ""}</td>
-              </tr>
-            `).join("")}
-          </table>
-
-          <h2 style="font-size: 13px; font-weight: 800; border-left: 4px solid #17242F; padding-left: 8px; margin: 14px 0 6px;">4. 決定事項</h2>
-          <div style="border: 1px solid #CCC; border-radius: 4px; padding: 8px 10px; min-height: 40px; white-space: pre-wrap;">${week.decisions || "(記載なし)"}</div>
-        </div>
-      `;
-
-      document.getElementById("printArea").innerHTML = html;
-    }
-
-    // ========== マスター管理 ==========
-    function renderMaster() {
-      let html = `
-        <div class="section-header">
-          <span class="section-num">07</span>
-          <h2 class="section-title">マスター管理</h2>
-        </div>
-        <div class="alert alert-warning">
-          ここでの変更は全メンバーの画面に即時反映されます。変更は管理責任者が行う運用を推奨します。
-        </div>
-
-        <div class="card">
-          <h3 style="font-weight: 800; margin-bottom: 10px;">メンバー</h3>
-          <div style="display: grid; gap: 6px; margin-bottom: 10px;">
-            ${master.members.map((m) => `
-              <div style="display: flex; align-items: center; gap: 8px; border: 1px solid #DCE0E3; border-radius: 6px; padding: 6px 10px;">
-                <span style="flex: 1; font-weight: 600;">${m}</span>
-                <button class="btn btn-small btn-danger" onclick="removeMember('${m}')">削除</button>
-              </div>
-            `).join("")}
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <input type="text" id="newMember" placeholder="氏名を入力" onkeydown="if(event.key==='Enter') addMember()">
-            <button class="btn btn-primary" onclick="addMember()">追加</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3 style="font-weight: 800; margin-bottom: 10px;">管理責任者</h3>
-          <select id="managerSelect" onchange="master.manager = this.value; queueSave('master'); renderMaster();" style="width: auto;">
-            ${master.members.map((m) => `<option value="${m}" ${m === master.manager ? "selected" : ""}>${m}</option>`).join("")}
-          </select>
-        </div>
-
-        <div class="card">
-          <h3 style="font-weight: 800; margin-bottom: 10px;">案件分類</h3>
-          <div style="display: grid; gap: 6px; margin-bottom: 10px;">
-            ${master.categories.map((c, i) => `
-              <div style="display: flex; align-items: center; gap: 8px; border: 1px solid #DCE0E3; border-radius: 6px; padding: 6px 10px;">
-                <span style="width: 10px; height: 10px; border-radius: 50%; background: ${CAT_PALETTE[i % CAT_PALETTE.length]};"></span>
-                <span style="flex: 1; font-weight: 600;">${c}</span>
-                <button class="btn btn-small btn-danger" onclick="removeCategory('${c}')">削除</button>
-              </div>
-            `).join("")}
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <input type="text" id="newCategory" placeholder="分類名を入力" onkeydown="if(event.key==='Enter') addCategory()">
-            <button class="btn btn-primary" onclick="addCategory()">追加</button>
-          </div>
-        </div>
-      `;
-
-      document.querySelector('[data-section="master"]').innerHTML = html;
-    }
-
-    function addMember() {
-      const val = document.getElementById("newMember").value.trim();
-      if (!val || master.members.includes(val)) return;
-      master.members.push(val);
-      document.getElementById("newMember").value = "";
-      queueSave("master");
-      renderMaster();
-      renderMemberButtons();
-      init();
-    }
-
-    function removeMember(m) {
-      if (!confirm(`「${m}」を削除しますか?`)) return;
-      master.members = master.members.filter((x) => x !== m);
-      if (master.manager === m) master.manager = master.members[0] || "";
-      queueSave("master");
-      renderMaster();
-      renderMemberButtons();
-    }
-
-    function addCategory() {
-      const val = document.getElementById("newCategory").value.trim();
-      if (!val || master.categories.includes(val)) return;
-      master.categories.push(val);
-      document.getElementById("newCategory").value = "";
-      queueSave("master");
-      renderMaster();
-    }
-
-    function removeCategory(c) {
-      if (!confirm(`「${c}」を削除しますか?`)) return;
-      master.categories = master.categories.filter((x) => x !== c);
-      queueSave("master");
-      renderMaster();
-    }
-
-    // ========== 設定 ==========
-    function renderSettings() {
-      let html = `
-        <div class="section-header">
-          <span class="section-num">08</span>
-          <h2 class="section-title">GoogleカレンダーICS URL登録</h2>
-        </div>
-        <div class="card">
-          <ol style="padding-left: 20px; line-height: 1.9; color: #3D4F5E; font-size: 12.5px; margin-bottom: 14px;">
-            <li>PCのGoogleカレンダーで歯車 → 設定 → 「マイカレンダー」で自分のカレンダーを選択</li>
-            <li>「カレンダーの統合」内の「<strong>iCal形式の公開URL</strong>」をコピー</li>
-            <li>下の自分の欄に貼り付け(自動保存)</li>
-          </ol>
-          <div style="display: grid; gap: 10px;">
-            ${master.members.map((m) => `
-              <label style="font-size: 12px; font-weight: 700;">
-                ${m}
-                <input type="text" value="${settings.icsUrls?.[m] || ""}" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" 
-                  onchange="settings.icsUrls = settings.icsUrls || {}; settings.icsUrls['${m}'] = this.value; queueSave('settings');" 
-                  style="margin-top: 4px;">
-              </label>
-            `).join("")}
-          </div>
-        </div>
-      `;
-
-      document.querySelector('[data-section="settings"]').innerHTML = html;
-    }
-
-    // ========== 共通 ==========
-    async function reload() {
-      await init();
-      renderBoard();
-    }
-
-    function logout() {
-      me = null;
-      document.getElementById("loginScreen").style.display = "flex";
-    }
-
-    // 初期化
-    init();
-  </script>
+/* ---------- イベント ---------- */
+document.addEventListener("DOMContentLoaded", ()=>{
+  $("btnLogin").addEventListener("click", tryLogin);
+  $("loginPw").addEventListener("keydown", e=>{ if(e.key==="Enter") tryLogin(); });
+  $("btnLogout").addEventListener("click", logout);
+  $("btnReload").addEventListener("click", reloadCurrent);
+  $("btnPrevW").addEventListener("click", ()=>{ const d=new Date(monday); d.setDate(d.getDate()-7); setMonday(d); });
+  $("btnNextW").addEventListener("click", ()=>{ const d=new Date(monday); d.setDate(d.getDate()+7); setMonday(d); });
+  $("btnTodayW").addEventListener("click", ()=>setMonday(getMonday(new Date())));
+  document.querySelectorAll(".tab-btn").forEach(b=>b.addEventListener("click",()=>switchTab(b.dataset.tab)));
+  $("btnAddTodo").addEventListener("click", addTodo);
+  $("todoInput").addEventListener("keydown", e=>{ if(e.key==="Enter") addTodo(); });
+  $("btnIcs").addEventListener("click", ()=>$("icsFile").click());
+  $("icsFile").addEventListener("change", importICS);
+  $("btnAddCase").addEventListener("click", ()=>openCase(null));
+  $("btnCaseCancel").addEventListener("click", ()=>$("caseModal").classList.remove("show"));
+  $("btnCaseSave").addEventListener("click", saveCase);
+  $("filterOwner").addEventListener("change", renderCases);
+  $("showArchived").addEventListener("change", renderCases);
+  $("btnPostAnn").addEventListener("click", postAnnouncement);
+  $("btnPostNippo").addEventListener("click", postNippo);
+  $("btnTeamsImport").addEventListener("click", async ()=>{ await importTeamsNippo(true); await renderNippoList(); });
+  $("nippoFilter").addEventListener("change", renderNippoList);
+  $("btnCommentClose").addEventListener("click", ()=>$("commentModal").classList.remove("show"));
+  $("btnCommentPost").addEventListener("click", postComment);
+  $("meetingNote").addEventListener("change", ()=>{ week.meetingNote=$("meetingNote").value; queueSave("week"); });
+  $("decisions").addEventListener("change", ()=>{ week.decisions=$("decisions").value; queueSave("week"); });
+  boot();
+});
+</script>
 </body>
 </html>
