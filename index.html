@@ -770,6 +770,12 @@ function showImportMsg(t, ok=true){
   el.className="alert "+(ok?"alert-info":"alert-error");
   el.textContent=t;
 }
+function cleanTeamsText(text){
+  let t=text.replace(/<at[^>]*>[\s\S]*?<\/at>/gi, "");
+  t=t.replace(/[^\n]*used a Workflow template[\s\S]*$/i, "");
+  t=t.replace(/[^\n]*ワークフロー\s*テンプレート[\s\S]*$/i, "");
+  return t.replace(/\n{3,}/g,"\n\n").trim();
+}
 function parseNippo(text){
   const t=text.match(/【D-WOLF工事日誌[_＿]?\s*([^】]+)】/); if(!t) return null;
   let name=t[1].replace(/[\s　]+/g,"");
@@ -822,7 +828,8 @@ async function importTeamsNippo(interactive=true){
     const rows=[];
     for(const m of msgs){
       if(m.messageType&&m.messageType!=="message") continue;
-      const text=messageToText(m);
+      const raw=messageToText(m);
+      const text=cleanTeamsText(raw);
       const p=parseNippo(text); if(!p) continue;
       rows.push({author:p.name, report_date:p.date, content:p.content, teams_msg_id:m.id, teams_sent:true});
     }
@@ -850,9 +857,12 @@ async function renderNippo(autoImport=true){
   }
 }
 function parseNippoFields(content){
-  const w=content.match(/業務内容[：:]\s*(.+)/);
+  const w=content.match(/業務内容[：:]\s*([\s\S]*?)(?=\n\s*明日の予定|\n\s*報告[・･]?相談事項|$)/);
   const i=content.match(/報告[・･]?相談事項[：:]\s*([\s\S]+)/);
-  return { work: w? w[1].trim() : "", issue: i? i[1].trim().replace(/\n{2,}/g,"\n") : "" };
+  const work=w? w[1].replace(/\s*\n\s*/g," ").trim() : "";
+  let issue=i? i[1].trim().replace(/\n{2,}/g,"\n") : "";
+  if(/^(なし|無し|特に(は)?ございません。?|特にありません。?)$/.test(issue)) issue="";
+  return { work, issue };
 }
 async function reflectNippoToMeeting(author){
   await loadWeek();
