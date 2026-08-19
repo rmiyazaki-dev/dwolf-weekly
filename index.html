@@ -355,7 +355,7 @@ let settings = {};
 let announcements = [];
 let mfReviewQueue = [];
 let pendingMfLink = null;
-let dashboardCaseFilter = null; // {field, value, label} ダッシュボードの件数クリックで案件管理を絞り込む
+let dashboardCaseFilter = null; // {label, predicate(c)} ダッシュボードの件数クリックで案件管理を絞り込む
 let commentCounts = {};
 let fileCounts = {};
 let monday = getMonday(new Date());
@@ -902,11 +902,7 @@ function renderCases(){
   const list=cases
     .filter(c=>showArchived? true : !c.archived)
     .filter(c=>sel.value==="全員"? true : c.owner===sel.value)
-    .filter(c=>{
-      if(!dashboardCaseFilter) return true;
-      const v=c[dashboardCaseFilter.field];
-      return dashboardCaseFilter.value===""? !v : v===dashboardCaseFilter.value;
-    })
+    .filter(c=>dashboardCaseFilter? dashboardCaseFilter.predicate(c) : true)
     .sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
   $("casesList").innerHTML = list.length===0
     ? `<div class="card" style="text-align:center; color:#3D4F5E; border-style:dashed;">案件がありません。「＋ 案件追加」から登録してください。</div>`
@@ -1341,7 +1337,7 @@ function renderDashboard(){
         ${monthRows.map(r=>`
           <tr style="background:${r.ym===nowYm?"#FFF0E6":""};">
             <td style="font-weight:${r.ym===nowYm?800:600}; white-space:nowrap;">${r.year}/${r.label}</td>
-            <td style="text-align:right;">${r.orderCount||`<span style="color:#C3C9CE;">―</span>`}</td>
+            <td data-dash-month="${r.ym}" style="text-align:right; ${r.orderCount?"cursor:pointer; text-decoration:underline; text-decoration-style:dotted;":""}">${r.orderCount||`<span style="color:#C3C9CE;">―</span>`}</td>
             <td style="text-align:right; font-weight:700;">${zero(r.orderAmt)}</td>
             <td style="text-align:right; color:#6B7A87;">${zero(r.quoteAmt)}</td>
             <td style="text-align:right;">${zero(r.payAmt)}</td>
@@ -1354,7 +1350,7 @@ function renderDashboard(){
           </tr>`).join("")}
         <tr style="background:#EEF1F3; font-weight:800;">
           <td>期 合計</td>
-          <td style="text-align:right;">${cur.orderCount}</td>
+          <td data-dash-fy="${dashFY}" style="text-align:right; ${cur.orderCount?"cursor:pointer; text-decoration:underline; text-decoration-style:dotted;":""}">${cur.orderCount}</td>
           <td style="text-align:right;">${zero(cur.orderAmt)}</td>
           <td style="text-align:right;">${zero(cur.quoteAmt)}</td>
           <td style="text-align:right;">${zero(cur.payAmt)}</td>
@@ -1382,7 +1378,7 @@ function renderDashboard(){
           ${rows.map(r=>`
             <tr style="background:${r.fy===dashFY?"#FFF0E6":""};">
               <td style="white-space:nowrap; font-weight:${r.fy===dashFY?800:600};">${fyLabel(r.fy)}${r.fy===currentFY()?"(今期)":""}</td>
-              <td style="text-align:right;">${r.orderCount||`<span style="color:#C3C9CE;">―</span>`}</td>
+              <td data-dash-fy="${r.fy}" style="text-align:right; ${r.orderCount?"cursor:pointer; text-decoration:underline; text-decoration-style:dotted;":""}">${r.orderCount||`<span style="color:#C3C9CE;">―</span>`}</td>
               <td style="text-align:right; font-weight:700;">${zero(r.orderAmt)}</td>
               <td style="text-align:right;">${zero(r.payAmt)}</td>
               <td style="text-align:right; color:#2F6A4F;">${zero(r.paidAmt)}</td>
@@ -1424,7 +1420,30 @@ function renderDashboard(){
   const fieldLabelJP={category:"分類", owner:"担当", salesOwner:"営業担当", flightOwner:"フライト担当"};
   document.querySelectorAll("[data-dash-field]").forEach(el=>el.addEventListener("click", ()=>{
     const field=el.dataset.dashField, value=el.dataset.dashValue, label=el.dataset.dashLabel;
-    dashboardCaseFilter={field, value, label:`${fieldLabelJP[field]||field}:${label}`};
+    dashboardCaseFilter={
+      label:`${fieldLabelJP[field]||field}:${label}`,
+      predicate:(c)=> value===""? !c[field] : c[field]===value,
+    };
+    switchTab("cases");
+  }));
+  document.querySelectorAll("[data-dash-month]").forEach(el=>el.addEventListener("click", ()=>{
+    const ym=el.dataset.dashMonth;
+    const mo=monthRows.find(m=>m.ym===ym);
+    if(!mo || !mo.orderCount) return;
+    dashboardCaseFilter={
+      label:`受注:${mo.year}年${mo.label}`,
+      predicate:(c)=> num(c.orderAmount)>0 && (orderBaseDate(c)||"").startsWith(ym),
+    };
+    switchTab("cases");
+  }));
+  document.querySelectorAll("[data-dash-fy]").forEach(el=>el.addEventListener("click", ()=>{
+    const fy=+el.dataset.dashFy;
+    const r=fyStats(fy);
+    if(!r.orderCount) return;
+    dashboardCaseFilter={
+      label:`受注:${fyLabel(fy)}`,
+      predicate:(c)=> num(c.orderAmount)>0 && fyOf(orderBaseDate(c))===fy,
+    };
     switchTab("cases");
   }));
 }
@@ -1705,9 +1724,14 @@ function busyColor(level){ const i=master.busyLevels.indexOf(level); return i>=0
 function mandaySum(m){ return cases.filter(c=>!c.archived&&c.owner===m).reduce((a,c)=>a+(parseFloat(c.manday)||0),0); }
 function renderMeeting(){
   const ns=week.nippoSummary||{};
+  const curKey=currentWeekKey();
   $("meetingList").innerHTML = master.members.map(m=>{
     const total=mandaySum(m); const over=total>=master.mandayLimit;
     const items=ns[m]||[];
+    const casePlans=cases.filter(c=>!c.archived&&c.owner===m).map(c=>({
+      name:c.name,
+      text:(c.weeklyPlans||[]).find(p=>p.weekKey===curKey)?.text||"",
+    })).filter(x=>x.text);
     return `
     <div class="card">
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
@@ -1725,6 +1749,11 @@ function renderMeeting(){
         <div><label style="font-size:12px; font-weight:700;">手伝えること</label>
           <textarea rows="2" data-hgive="${esc(m)}" style="margin-top:4px;">${esc(week.helpGive[m]||"")}</textarea></div>
       </div>
+      ${casePlans.length? `
+      <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">案件の今週の予定</div>
+        ${casePlans.map(p=>`<div style="font-size:12.5px; margin-bottom:4px; white-space:pre-wrap;"><b>${esc(p.name)}:</b> ${esc(p.text)}</div>`).join("")}
+      </div>`:""}
       ${items.length? `
       <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
         <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">日報より:今週の実施内容(自動集計・編集可)</div>
