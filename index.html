@@ -367,6 +367,7 @@ let customers = [];
 let settings = {};
 let announcements = [];
 let mfReviewQueue = [];
+let pendingMfLink = null;
 let commentCounts = {};
 let fileCounts = {};
 let monday = getMonday(new Date());
@@ -751,29 +752,45 @@ function renderDueAlerts(){
   $("dueAlerts").innerHTML=html;
 }
 /* ---------- Money Forward連携:要確認リスト ---------- */
+let showSkippedMf=false;
 async function loadMfReviewQueue(){
-  const {data,error}=await sb.from("mf_review_queue").select("*").eq("status","pending").order("id",{ascending:false});
+  const {data,error}=await sb.from("mf_review_queue").select("*").in("status",["pending","skipped"]).order("id",{ascending:false});
   if(error){ mfReviewQueue=[]; return; }
   mfReviewQueue=data||[];
 }
-function renderMfReviewQueue(){
-  if(!mfReviewQueue.length){ $("mfReviewQueue").innerHTML=""; return; }
+function mfReviewItemRow(item){
   const caseOpts=cases.filter(c=>!c.archived).map(c=>`<option value="${c.id}">${esc(c.name)}(${esc(c.customerName||"顧客未設定")}・${esc(c.owner)})</option>`).join("");
+  const skipped=item.status==="skipped";
+  return `
+    <div style="background:${skipped?"#F7F7F5":"#fff"}; border:1px solid ${skipped?"#DCE0E3":"#E5C56A"}; border-radius:6px; padding:8px 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; opacity:${skipped?0.8:1};">
+      <span class="chip" style="background:#17242F14; border:1px solid #17242F33;">${item.type==="quote"?"見積書":"請求書"}</span>
+      ${skipped?'<span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3; color:#6B7A87;">見送り済み</span>':""}
+      <span style="font-weight:700;">${esc(item.partner_name||"(取引先不明)")}</span>
+      <span style="color:#3D4F5E;">${item.amount?fmtYen(item.amount):""}${item.mf_number?`　No.${esc(item.mf_number)}`:""}${item.issue_date?`　${esc(item.issue_date)}`:""}</span>
+      <select data-mf-link-sel="${item.id}" style="margin-left:auto; min-width:180px;"><option value="">紐付ける案件を選択</option>${caseOpts}</select>
+      <button class="btn btn-small btn-primary" data-mf-link="${item.id}">紐付ける</button>
+      <button class="btn btn-small btn-secondary" data-mf-new="${item.id}">新規案件として登録</button>
+      ${skipped
+        ? `<button class="btn btn-small btn-secondary" data-mf-unskip="${item.id}">見送りを取り消す</button>`
+        : `<button class="btn btn-small btn-secondary" data-mf-skip="${item.id}">見送り</button>`}
+    </div>`;
+}
+function renderMfReviewQueue(){
+  const pending=mfReviewQueue.filter(x=>x.status==="pending");
+  const skipped=mfReviewQueue.filter(x=>x.status==="skipped");
+  if(!pending.length && !skipped.length){ $("mfReviewQueue").innerHTML=""; return; }
   $("mfReviewQueue").innerHTML=`
   <div class="alert alert-warning">
-    <b>Money Forwardからの要確認:</b> 自動で案件と紐付けできなかった${mfReviewQueue.length}件があります。
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <span><b>Money Forwardからの要確認:</b> 自動で案件と紐付けできなかった${pending.length}件があります。</span>
+      ${skipped.length? `<label style="margin-left:auto; font-size:12px; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="mfShowSkipped" ${showSkippedMf?"checked":""}> 見送り済み(${skipped.length}件)も表示</label>`:""}
+    </div>
     <div style="display:grid; gap:8px; margin-top:8px;">
-      ${mfReviewQueue.map(item=>`
-        <div style="background:#fff; border:1px solid #E5C56A; border-radius:6px; padding:8px 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-          <span class="chip" style="background:#17242F14; border:1px solid #17242F33;">${item.type==="quote"?"見積書":"請求書"}</span>
-          <span style="font-weight:700;">${esc(item.partner_name||"(取引先不明)")}</span>
-          <span style="color:#3D4F5E;">${item.amount?fmtYen(item.amount):""}${item.mf_number?`　No.${esc(item.mf_number)}`:""}${item.issue_date?`　${esc(item.issue_date)}`:""}</span>
-          <select data-mf-link-sel="${item.id}" style="margin-left:auto; min-width:180px;"><option value="">紐付ける案件を選択</option>${caseOpts}</select>
-          <button class="btn btn-small btn-primary" data-mf-link="${item.id}">紐付ける</button>
-          <button class="btn btn-small btn-secondary" data-mf-skip="${item.id}">見送り</button>
-        </div>`).join("")}
+      ${pending.map(mfReviewItemRow).join("")}
+      ${showSkippedMf? skipped.map(mfReviewItemRow).join("") : ""}
     </div>
   </div>`;
+  $("mfShowSkipped")?.addEventListener("change",(e)=>{ showSkippedMf=e.target.checked; renderMfReviewQueue(); });
   document.querySelectorAll("[data-mf-link]").forEach(b=>b.addEventListener("click", async ()=>{
     const id=+b.dataset.mfLink;
     const sel=document.querySelector(`[data-mf-link-sel="${id}"]`);
@@ -781,8 +798,8 @@ function renderMfReviewQueue(){
     if(!caseId){ alert("紐付ける案件を選択してください。"); return; }
     const item=mfReviewQueue.find(x=>x.id===id); if(!item) return;
     const c=cases.find(x=>x.id===caseId); if(!c) return;
-    if(item.type==="quote"){ c.mfQuoteId=item.mf_id; c.mfQuoteNumber=item.mf_number; }
-    else{ c.mfBillingId=item.mf_id; }
+    if(item.type==="quote"){ c.mfQuoteId=item.mf_id; c.mfQuoteNumber=item.mf_number; if(item.amount) c.quoteAmount=String(item.amount); }
+    else{ c.mfBillingId=item.mf_id; if(item.amount) c.orderAmount=String(item.amount); }
     c.mfLinkedAt=new Date().toISOString(); c.updatedAt=Date.now();
     await saveCaseRow(c);
     await logCaseHistory(c.id, "MF手動紐付け", `${item.type==="quote"?"見積":"請求"} ${item.mf_number||item.mf_id}`);
@@ -791,9 +808,25 @@ function renderMfReviewQueue(){
     await loadCases(); await loadMfReviewQueue(); renderCases();
     setStatus("紐付けました");
   }));
+  document.querySelectorAll("[data-mf-new]").forEach(b=>b.addEventListener("click", async ()=>{
+    const item=mfReviewQueue.find(x=>x.id===+b.dataset.mfNew); if(!item) return;
+    await loadCustomers();
+    pendingMfLink={itemId:item.id, type:item.type, mf_id:item.mf_id, mf_number:item.mf_number};
+    openCase(null, {
+      customerName: item.partner_name||"",
+      name: item.partner_name? `${item.partner_name}` : "",
+      quoteAmount: item.type==="quote"? String(item.amount||"") : "",
+      orderAmount: item.type==="billing"? String(item.amount||"") : "",
+      note: `MF${item.type==="quote"?"見積":"請求"} No.${item.mf_number||item.mf_id}より作成`,
+    });
+  }));
   document.querySelectorAll("[data-mf-skip]").forEach(b=>b.addEventListener("click", async ()=>{
-    if(!confirm("この項目を見送りますか?(以後この一覧に表示されません)")) return;
+    if(!confirm("この項目を見送りますか?(あとで「見送り済みも表示」から紐付け直せます)")) return;
     await sb.from("mf_review_queue").update({status:"skipped", resolved_by:me, resolved_at:new Date().toISOString()}).eq("id",+b.dataset.mfSkip);
+    await loadMfReviewQueue(); renderMfReviewQueue();
+  }));
+  document.querySelectorAll("[data-mf-unskip]").forEach(b=>b.addEventListener("click", async ()=>{
+    await sb.from("mf_review_queue").update({status:"pending", resolved_by:null, resolved_at:null}).eq("id",+b.dataset.mfUnskip);
     await loadMfReviewQueue(); renderMfReviewQueue();
   }));
 }
@@ -847,10 +880,10 @@ function renderCases(){
     renderCases(); setStatus("保存しました");
   }));
 }
-function openCase(id){
+function openCase(id, prefill){
   editingCase = id==null
     ? {id:null, owner:me, category:master.categories[0], name:"", status:master.statuses[0], manday:"", nextPlan:"", note:"", archived:false,
-       customerId:"", customerName:"", quoteAmount:"", orderAmount:"", billingStatus:BILLING_STATUSES[0], execDate:"", dueDate:"", paymentDate:""}
+       customerId:"", customerName:"", quoteAmount:"", orderAmount:"", billingStatus:BILLING_STATUSES[0], execDate:"", dueDate:"", paymentDate:"", ...(prefill||{})}
     : structuredClone(cases.find(x=>x.id===id));
   $("caseModalTitle").textContent=editingCase.id? "案件を編集" : "案件を追加";
   const opt=(arr,cur)=>arr.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("");
@@ -925,6 +958,16 @@ async function saveCase(){
       if(String(before.dueDate||"")!==String(editingCase.dueDate||"")) await logCaseHistory(editingCase.id, "納期変更", `${before.dueDate||"未設定"} → ${editingCase.dueDate||"未設定"}`);
       if(String(before.paymentDate||"")!==String(editingCase.paymentDate||"")) await logCaseHistory(editingCase.id, "入金予定日変更", `${before.paymentDate||"未設定"} → ${editingCase.paymentDate||"未設定"}`);
     }
+  }
+  if(ok && pendingMfLink){
+    const link=pendingMfLink; pendingMfLink=null;
+    if(link.type==="quote"){ editingCase.mfQuoteId=link.mf_id; editingCase.mfQuoteNumber=link.mf_number; }
+    else{ editingCase.mfBillingId=link.mf_id; }
+    editingCase.mfLinkedAt=new Date().toISOString();
+    await saveCaseRow(editingCase);
+    await logCaseHistory(editingCase.id, "MF紐付け(新規案件)", `${link.type==="quote"?"見積":"請求"} ${link.mf_number||link.mf_id}`);
+    await sb.from("mf_review_queue").update({status:"linked", linked_case_id:editingCase.id, resolved_by:me, resolved_at:new Date().toISOString()}).eq("id",link.itemId);
+    await loadMfReviewQueue();
   }
   $("caseModal").classList.remove("show");
   await loadCases(); renderCases();
@@ -1999,7 +2042,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
   $("btnGoogleCalendarImport").addEventListener("click", importGoogleCalendarWeek);
   $("icsFile").addEventListener("change", importICS);
   $("btnAddCase").addEventListener("click", async ()=>{ await loadCustomers(); openCase(null); });
-  $("btnCaseCancel").addEventListener("click", ()=>$("caseModal").classList.remove("show"));
+  $("btnCaseCancel").addEventListener("click", ()=>{ pendingMfLink=null; $("caseModal").classList.remove("show"); });
   $("btnCaseSave").addEventListener("click", saveCase);
   $("btnFileClose").addEventListener("click", ()=>$("fileModal").classList.remove("show"));
   $("btnFileSelect").addEventListener("click", ()=>$("fileUploadInput").click());

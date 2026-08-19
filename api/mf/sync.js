@@ -3,6 +3,11 @@ const { normalizePartnerName, extractQuoteFields, extractBillingFields, isPaid, 
 const admin = require("../../lib/mf/supabaseAdmin");
 const db = require("../../lib/mf/supabaseAnon");
 
+function fmtYenLog(n) {
+  const v = Number(n) || 0;
+  return v ? `¥${v.toLocaleString("ja-JP")}` : "";
+}
+
 function isAuthorized(req) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = req.headers.authorization || "";
@@ -18,6 +23,17 @@ function findCandidates(activeCases, partnerName, amount, linkedField) {
   return activeCases.filter(
     (c) => !c[linkedField] && normalizePartnerName(c.customerName) === normTarget && amountsClose(c.quoteAmount || c.orderAmount, amount)
   );
+}
+
+/*
+ * 請求書は「既に見積が紐付いている・まだ請求書は紐付いていない・取引先名が一致する」案件を
+ * 金額の一致に関わらず優先的に候補にする(見積→請求書で1つの案件にまとめるため。
+ * MFのAPIには見積書と請求書を直接つなぐフィールドが無いため、この優先度で代替する)。
+ */
+function findQuoteLinkedCandidates(activeCases, partnerName) {
+  const normTarget = normalizePartnerName(partnerName);
+  if (!normTarget) return [];
+  return activeCases.filter((c) => c.mfQuoteId && !c.mfBillingId && normalizePartnerName(c.customerName) === normTarget);
 }
 
 async function ensureAccessToken() {
@@ -63,9 +79,14 @@ module.exports = async function handler(req, res) {
       const candidates = findCandidates(activeCases, q.partnerName, q.amount, "mfQuoteId");
       if (candidates.length === 1) {
         const c = candidates[0];
-        const merged = await db.updateCaseData(c.id, { mfQuoteId: q.mfId, mfQuoteNumber: q.mfNumber, mfLinkedAt: new Date().toISOString() });
+        const merged = await db.updateCaseData(c.id, {
+          mfQuoteId: q.mfId,
+          mfQuoteNumber: q.mfNumber,
+          mfLinkedAt: new Date().toISOString(),
+          quoteAmount: String(q.amount),
+        });
         activeCases = activeCases.map((x) => (x.id === c.id ? { id: c.id, ...merged } : x));
-        await db.insertCaseHistory(c.id, "MF連携(自動)", "MF見積 自動突合", `${q.mfNumber || q.mfId}(${q.partnerName || ""})`);
+        await db.insertCaseHistory(c.id, "MF連携(自動)", "MF見積 自動突合", `${q.mfNumber || q.mfId}(${q.partnerName || ""}・見積${fmtYenLog(q.amount)})`);
         await db.insertAuditLog("MF連携(自動)", "MF見積 自動突合", `${c.name}:${q.mfNumber || q.mfId}`);
         summary.quotesLinked++;
       } else {
@@ -87,6 +108,10 @@ module.exports = async function handler(req, res) {
       const b = extractBillingFields(raw);
       let target = await db.findCaseByMfId("mfBillingId", b.mfId);
       if (!target) {
+        const quoteLinked = findQuoteLinkedCandidates(activeCases, b.partnerName);
+        if (quoteLinked.length === 1) target = quoteLinked[0];
+      }
+      if (!target) {
         const candidates = findCandidates(activeCases, b.partnerName, b.amount, "mfBillingId");
         if (candidates.length === 1) target = candidates[0];
       }
@@ -104,12 +129,15 @@ module.exports = async function handler(req, res) {
         continue;
       }
       const patch = {};
-      if (!target.mfBillingId) {
+      const firstLink = !target.mfBillingId;
+      if (firstLink) {
         patch.mfBillingId = b.mfId;
         patch.mfLinkedAt = new Date().toISOString();
       }
+      /* 売上(受注額)は請求書の金額(税込)を正として登録する。見積額とは別フィールドのまま両方保持する */
+      if (String(target.orderAmount || "") !== String(b.amount)) patch.orderAmount = String(b.amount);
       const current = target.billingStatus || "未請求";
-      let action = null;
+      let action = firstLink ? "MF請求書 自動突合" : null;
       if (isPaid(b.paymentStatus) && current !== "入金済") {
         patch.billingStatus = "入金済";
         action = "MF入金確認";
@@ -121,7 +149,7 @@ module.exports = async function handler(req, res) {
         const merged = await db.updateCaseData(target.id, patch);
         activeCases = activeCases.map((x) => (x.id === target.id ? { id: target.id, ...merged } : x));
         if (action) {
-          await db.insertCaseHistory(target.id, "MF連携(自動)", action, `${b.mfNumber || b.mfId}`);
+          await db.insertCaseHistory(target.id, "MF連携(自動)", action, `${b.mfNumber || b.mfId}(請求${fmtYenLog(b.amount)})`);
           await db.insertAuditLog("MF連携(自動)", action, `${target.name}:${b.mfNumber || b.mfId}`);
         }
         summary.billingsUpdated++;
