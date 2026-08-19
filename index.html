@@ -745,6 +745,27 @@ function renderDueAlerts(){
 /* ---------- Money Forward連携:要確認リスト ---------- */
 /* MFのdue_date等は "2026/07/21" 形式で来るため、<input type="date"> が要求するISO形式に正規化する */
 function mfNormDate(s){ return s? String(s).slice(0,10).replace(/\//g,"-") : ""; }
+/* 要確認リストの項目(見積/請求書)を既存案件cに紐付ける共通処理(手動紐付け・同名突合の両方から使う) */
+async function linkMfItemToCase(item, c){
+  if(item.type==="quote"){
+    c.mfQuoteId=item.mf_id; c.mfQuoteNumber=item.mf_number; if(item.amount) c.quoteAmount=String(item.amount);
+    if(item.issue_date) c.mfQuoteDate=mfNormDate(item.issue_date);
+    if(!c.mfBillingId) c.status="見積提出"; // 請求書が既に紐付いていれば進捗ステータスを巻き戻さない
+  }else{
+    c.mfBillingId=item.mf_id; if(item.amount) c.orderAmount=String(item.amount);
+    c.status="請求書提出";
+    const ps=String(item.raw?.payment_status||"");
+    if(ps.includes("入金済")||ps.includes("振込済")) c.billingStatus="入金済";
+    else if(c.billingStatus!=="入金済") c.billingStatus="請求済";
+    const dueDate=mfNormDate(item.raw?.due_date);
+    if(dueDate) c.paymentDate=dueDate;
+  }
+  c.mfLinkedAt=new Date().toISOString(); c.updatedAt=Date.now();
+  await saveCaseRow(c);
+  await logCaseHistory(c.id, "MF手動紐付け", `${item.type==="quote"?"見積":"請求"} ${item.mf_number||item.mf_id}`);
+  await logAction("MF手動紐付け", `${c.name}:${item.mf_number||item.mf_id}`);
+  await sb.from("mf_review_queue").update({status:"linked", linked_case_id:c.id, resolved_by:me, resolved_at:new Date().toISOString()}).eq("id",item.id);
+}
 let showSkippedMf=false;
 async function loadMfReviewQueue(){
   const {data,error}=await sb.from("mf_review_queue").select("*").in("status",["pending","skipped"]).order("id",{ascending:false});
@@ -813,29 +834,22 @@ function renderMfReviewQueue(){
     if(!caseId){ alert("紐付ける案件を選択してください。"); return; }
     const item=mfReviewQueue.find(x=>x.id===id); if(!item) return;
     const c=cases.find(x=>x.id===caseId); if(!c) return;
-    if(item.type==="quote"){
-      c.mfQuoteId=item.mf_id; c.mfQuoteNumber=item.mf_number; if(item.amount) c.quoteAmount=String(item.amount);
-      if(item.issue_date) c.mfQuoteDate=mfNormDate(item.issue_date);
-      c.status="見積提出";
-    }else{
-      c.mfBillingId=item.mf_id; if(item.amount) c.orderAmount=String(item.amount);
-      c.status="請求書提出";
-      const ps=String(item.raw?.payment_status||"");
-      if(ps.includes("入金済")||ps.includes("振込済")) c.billingStatus="入金済";
-      else if(c.billingStatus!=="入金済") c.billingStatus="請求済";
-      const dueDate=mfNormDate(item.raw?.due_date);
-      if(dueDate) c.paymentDate=dueDate;
-    }
-    c.mfLinkedAt=new Date().toISOString(); c.updatedAt=Date.now();
-    await saveCaseRow(c);
-    await logCaseHistory(c.id, "MF手動紐付け", `${item.type==="quote"?"見積":"請求"} ${item.mf_number||item.mf_id}`);
-    await logAction("MF手動紐付け", `${c.name}:${item.mf_number||item.mf_id}`);
-    await sb.from("mf_review_queue").update({status:"linked", linked_case_id:caseId, resolved_by:me, resolved_at:new Date().toISOString()}).eq("id",id);
+    await linkMfItemToCase(item, c);
     await loadCases(); await loadMfReviewQueue(); renderCases();
     setStatus("紐付けました");
   }));
   document.querySelectorAll("[data-mf-new]").forEach(b=>b.addEventListener("click", async ()=>{
     const item=mfReviewQueue.find(x=>x.id===+b.dataset.mfNew); if(!item) return;
+    const title=String(item.raw?.title||"").trim();
+    if(title){
+      const sameNameCase=mfCandidateCases().find(c=>String(c.name||"").trim()===title);
+      if(sameNameCase && confirm(`「${title}」という同名の案件が既にあります(${sameNameCase.customerName||"顧客未設定"}・${sameNameCase.owner})。\nこの案件に紐付けますか?\n(キャンセルすると新規登録画面を開きます)`)){
+        await linkMfItemToCase(item, sameNameCase);
+        await loadCases(); await loadMfReviewQueue(); renderCases();
+        setStatus("紐付けました");
+        return;
+      }
+    }
     await loadCustomers();
     pendingMfLink={itemId:item.id, type:item.type, mf_id:item.mf_id, mf_number:item.mf_number, issue_date:item.issue_date};
     const prefill={

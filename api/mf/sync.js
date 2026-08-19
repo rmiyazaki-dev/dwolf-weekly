@@ -26,6 +26,17 @@ function findCandidates(activeCases, partnerName, amount, linkedField) {
 }
 
 /*
+ * 案件名がMFの件名(title)と完全一致する案件を最優先の候補にする。
+ * 「請求書を先に新規案件として登録し、後から見積が来る」場合など、見積↔請求書どちらが
+ * 先でも案件名(=作成時にMFの件名をそのまま使う)を軸に同じ案件へまとめられるようにする。
+ */
+function findTitleMatch(activeCases, title, linkedField) {
+  const t = String(title || "").trim();
+  if (!t) return [];
+  return activeCases.filter((c) => !c[linkedField] && String(c.name || "").trim() === t);
+}
+
+/*
  * 請求書は「既に見積が紐付いている・まだ請求書は紐付いていない・取引先名が一致する」案件を
  * 金額の一致に関わらず優先的に候補にする(見積→請求書で1つの案件にまとめるため。
  * MFのAPIには見積書と請求書を直接つなぐフィールドが無いため、この優先度で代替する)。
@@ -77,40 +88,50 @@ module.exports = async function handler(req, res) {
       const existing = await db.findCaseByMfId("mfQuoteId", q.mfId);
       if (existing) continue; // 全く同じ見積は処理済み
 
-      /* 同じ取引先で既に見積が紐付いている案件が1件だけあれば、発行日が新しい方を優先して上書きする
-         (見積の再発行・改訂に対応。金額の一致は問わない) */
-      const normTarget = normalizePartnerName(q.partnerName);
-      const quoteLinkedSamePartner = normTarget
-        ? activeCases.filter((c) => c.mfQuoteId && normalizePartnerName(c.customerName) === normTarget)
-        : [];
       let target = null;
       let isOverwrite = false;
-      if (quoteLinkedSamePartner.length === 1) {
-        const c = quoteLinkedSamePartner[0];
-        if (!c.mfQuoteDate || String(q.issueDate || "") > String(c.mfQuoteDate)) {
-          target = c;
-          isOverwrite = true;
-        } else {
-          continue; // 既存の方が新しい見積なので、この見積は無視する
+
+      const titleMatches = findTitleMatch(activeCases, q.title, "mfQuoteId");
+      if (titleMatches.length === 1) {
+        target = titleMatches[0];
+      } else {
+        /* 同じ取引先で既に見積が紐付いている案件が1件だけあれば、発行日が新しい方を優先して上書きする
+           (見積の再発行・改訂に対応。金額の一致は問わない) */
+        const normTarget = normalizePartnerName(q.partnerName);
+        const quoteLinkedSamePartner = normTarget
+          ? activeCases.filter((c) => c.mfQuoteId && normalizePartnerName(c.customerName) === normTarget)
+          : [];
+        if (quoteLinkedSamePartner.length === 1) {
+          const c = quoteLinkedSamePartner[0];
+          if (!c.mfQuoteDate || String(q.issueDate || "") > String(c.mfQuoteDate)) {
+            target = c;
+            isOverwrite = true;
+          } else {
+            continue; // 既存の方が新しい見積なので、この見積は無視する
+          }
+        }
+        if (!target) {
+          const candidates = findCandidates(activeCases, q.partnerName, q.amount, "mfQuoteId");
+          if (candidates.length === 1) target = candidates[0];
         }
       }
-      if (!target) {
-        const candidates = findCandidates(activeCases, q.partnerName, q.amount, "mfQuoteId");
-        if (candidates.length === 1) target = candidates[0];
-      }
       if (target) {
-        const merged = await db.updateCaseData(target.id, {
+        const quotePatch = {
           mfQuoteId: q.mfId,
           mfQuoteNumber: q.mfNumber,
           mfQuoteDate: q.issueDate || null,
           mfLinkedAt: new Date().toISOString(),
           quoteAmount: String(q.amount),
-          status: "見積提出",
-        });
+        };
+        /* 請求書が既に紐付いている(=請求書提出まで進んでいる)案件には、見積の紐付けで
+           ステータスを「見積提出」に巻き戻さない(請求書が先に登録されたケースを想定) */
+        if (!target.mfBillingId) quotePatch.status = "見積提出";
+        const merged = await db.updateCaseData(target.id, quotePatch);
         activeCases = activeCases.map((x) => (x.id === target.id ? { id: target.id, ...merged } : x));
         const action = isOverwrite ? "MF見積 更新(新しい見積で上書き)" : "MF見積 自動突合";
         await db.insertCaseHistory(target.id, "MF連携(自動)", action, `${q.mfNumber || q.mfId}(${q.partnerName || ""}・見積${fmtYenLog(q.amount)})`);
         await db.insertAuditLog("MF連携(自動)", action, `${target.name}:${q.mfNumber || q.mfId}`);
+        await db.resolveReviewQueueItem("quote", q.mfId, target.id);
         summary.quotesLinked++;
       } else {
         await db.queueReviewItem({
@@ -130,6 +151,10 @@ module.exports = async function handler(req, res) {
       summary.billingsSeen++;
       const b = extractBillingFields(raw);
       let target = await db.findCaseByMfId("mfBillingId", b.mfId);
+      if (!target) {
+        const titleMatches = findTitleMatch(activeCases, b.title, "mfBillingId");
+        if (titleMatches.length === 1) target = titleMatches[0];
+      }
       if (!target) {
         const quoteLinked = findQuoteLinkedCandidates(activeCases, b.partnerName);
         if (quoteLinked.length === 1) target = quoteLinked[0];
@@ -151,6 +176,7 @@ module.exports = async function handler(req, res) {
         summary.billingsQueued++;
         continue;
       }
+      await db.resolveReviewQueueItem("billing", b.mfId, target.id);
       const patch = {};
       const firstLink = !target.mfBillingId;
       if (firstLink) {
