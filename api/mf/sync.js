@@ -75,19 +75,42 @@ module.exports = async function handler(req, res) {
       summary.quotesSeen++;
       const q = extractQuoteFields(raw);
       const existing = await db.findCaseByMfId("mfQuoteId", q.mfId);
-      if (existing) continue;
-      const candidates = findCandidates(activeCases, q.partnerName, q.amount, "mfQuoteId");
-      if (candidates.length === 1) {
-        const c = candidates[0];
-        const merged = await db.updateCaseData(c.id, {
+      if (existing) continue; // 全く同じ見積は処理済み
+
+      /* 同じ取引先で既に見積が紐付いている案件が1件だけあれば、発行日が新しい方を優先して上書きする
+         (見積の再発行・改訂に対応。金額の一致は問わない) */
+      const normTarget = normalizePartnerName(q.partnerName);
+      const quoteLinkedSamePartner = normTarget
+        ? activeCases.filter((c) => c.mfQuoteId && normalizePartnerName(c.customerName) === normTarget)
+        : [];
+      let target = null;
+      let isOverwrite = false;
+      if (quoteLinkedSamePartner.length === 1) {
+        const c = quoteLinkedSamePartner[0];
+        if (!c.mfQuoteDate || String(q.issueDate || "") > String(c.mfQuoteDate)) {
+          target = c;
+          isOverwrite = true;
+        } else {
+          continue; // 既存の方が新しい見積なので、この見積は無視する
+        }
+      }
+      if (!target) {
+        const candidates = findCandidates(activeCases, q.partnerName, q.amount, "mfQuoteId");
+        if (candidates.length === 1) target = candidates[0];
+      }
+      if (target) {
+        const merged = await db.updateCaseData(target.id, {
           mfQuoteId: q.mfId,
           mfQuoteNumber: q.mfNumber,
+          mfQuoteDate: q.issueDate || null,
           mfLinkedAt: new Date().toISOString(),
           quoteAmount: String(q.amount),
+          status: "見積提出",
         });
-        activeCases = activeCases.map((x) => (x.id === c.id ? { id: c.id, ...merged } : x));
-        await db.insertCaseHistory(c.id, "MF連携(自動)", "MF見積 自動突合", `${q.mfNumber || q.mfId}(${q.partnerName || ""}・見積${fmtYenLog(q.amount)})`);
-        await db.insertAuditLog("MF連携(自動)", "MF見積 自動突合", `${c.name}:${q.mfNumber || q.mfId}`);
+        activeCases = activeCases.map((x) => (x.id === target.id ? { id: target.id, ...merged } : x));
+        const action = isOverwrite ? "MF見積 更新(新しい見積で上書き)" : "MF見積 自動突合";
+        await db.insertCaseHistory(target.id, "MF連携(自動)", action, `${q.mfNumber || q.mfId}(${q.partnerName || ""}・見積${fmtYenLog(q.amount)})`);
+        await db.insertAuditLog("MF連携(自動)", action, `${target.name}:${q.mfNumber || q.mfId}`);
         summary.quotesLinked++;
       } else {
         await db.queueReviewItem({
@@ -133,17 +156,22 @@ module.exports = async function handler(req, res) {
       if (firstLink) {
         patch.mfBillingId = b.mfId;
         patch.mfLinkedAt = new Date().toISOString();
+        patch.status = "請求書提出";
       }
       /* 売上(受注額)は請求書の金額(税込)を正として登録する。見積額とは別フィールドのまま両方保持する */
       if (String(target.orderAmount || "") !== String(b.amount)) patch.orderAmount = String(b.amount);
+      /* 入金予定日は請求書のお支払期限を正として登録する */
+      if (b.dueDate && String(target.paymentDate || "") !== String(b.dueDate)) patch.paymentDate = b.dueDate;
       const current = target.billingStatus || "未請求";
       let action = firstLink ? "MF請求書 自動突合" : null;
-      if (isPaid(b.paymentStatus) && current !== "入金済") {
-        patch.billingStatus = "入金済";
-        action = "MF入金確認";
-      } else if (!isPaid(b.paymentStatus) && current === "未請求") {
+      if (isPaid(b.paymentStatus)) {
+        if (current !== "入金済") {
+          patch.billingStatus = "入金済";
+          action = "MF入金確認";
+        }
+      } else if (current !== "請求済" && current !== "入金済") {
         patch.billingStatus = "請求済";
-        action = "MF請求書検知";
+        action = action || "MF請求書検知";
       }
       if (Object.keys(patch).length) {
         const merged = await db.updateCaseData(target.id, patch);

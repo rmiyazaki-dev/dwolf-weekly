@@ -231,20 +231,6 @@
       <div class="alert alert-info" id="teamsImportMsg" style="display:none;"></div>
       <div class="alert alert-info" style="font-size:12px;">各日報の「会議資料に反映」を押すと、その人の今週(月〜金)分の業務内容・報告相談事項を自動集計し、会議モードと社長報告に反映します。</div>
       <div id="nippoList"></div>
-
-      <div class="section-header" style="margin-top:26px;"><span class="section-num">07</span><h2 class="section-title">アプリから直接送信(任意)</h2></div>
-      <div class="card">
-        <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
-          <label style="font-size:12.5px; font-weight:700;">日付</label>
-          <input type="date" id="nippoDate">
-          <span id="nippoTeamsState" style="font-size:11.5px; color:#6B7A87;"></span>
-        </div>
-        <textarea id="nippoInput" rows="6" placeholder="今日の作業内容・所感・明日の予定 など"></textarea>
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
-          <span style="font-size:11.5px; color:#6B7A87;">送信すると保存され、Teams連携設定済みなら日報チャネルにも自動投稿されます。</span>
-          <button class="btn btn-primary" id="btnPostNippo">日報を送信</button>
-        </div>
-      </div>
     </div>
 
     <!-- 会議モード -->
@@ -350,7 +336,7 @@ const DEFAULT_MASTER = {
   members: ["岩上星音", "飯田匡輝", "妙見修志", "多々良鮎"],
   manager: "多々良鮎",
   categories: ["教習", "機体販売", "点検", "ICT", "新規分野"],
-  statuses: ["見積提出", "契約", "準備", "実施", "報告書作成", "完了"],
+  statuses: ["見積提出", "契約", "準備", "実施", "報告書作成", "請求書提出", "完了"],
   busyLevels: ["余裕あり", "普通", "逼迫"],
   mandayLimit: 5,
 };
@@ -481,6 +467,11 @@ async function boot(){
   sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const m=await kvGet("master");
   if(m) master={...DEFAULT_MASTER, ...m};
+  if(!master.statuses.includes("請求書提出")){
+    const idx=master.statuses.indexOf("完了");
+    if(idx>=0) master.statuses.splice(idx,0,"請求書提出"); else master.statuses.push("請求書提出");
+    await kvSet("master",master);
+  }
   settings=(await kvGet("settings"))||{};
   renderLoginButtons();
   const saved=sessionStorage.getItem("dwolf_user");
@@ -758,8 +749,21 @@ async function loadMfReviewQueue(){
   if(error){ mfReviewQueue=[]; return; }
   mfReviewQueue=data||[];
 }
+/* 要確認リストの紐付け候補:未完了の案件は常に対象。「完了」済の案件は今期のもの、
+   または前期以前でも直近2ヶ月以内(実施日/納期/入金予定日基準)のものだけに絞る */
+function mfCandidateCases(){
+  const cutoff=new Date(); cutoff.setMonth(cutoff.getMonth()-2);
+  return cases.filter(c=>{
+    if(c.archived) return false;
+    if(c.status!=="完了") return true;
+    const base=orderBaseDate(c);
+    if(!base) return true;
+    if(fyOf(base)===currentFY()) return true;
+    return new Date(base+"T00:00:00")>=cutoff;
+  });
+}
 function mfReviewItemRow(item){
-  const caseOpts=cases.filter(c=>!c.archived).map(c=>`<option value="${c.id}">${esc(c.name)}(${esc(c.customerName||"顧客未設定")}・${esc(c.owner)})</option>`).join("");
+  const caseOpts=mfCandidateCases().map(c=>`<option value="${c.id}">${esc(c.name)}(${esc(c.customerName||"顧客未設定")}・${esc(c.owner)})</option>`).join("");
   const skipped=item.status==="skipped";
   return `
     <div style="background:${skipped?"#F7F7F5":"#fff"}; border:1px solid ${skipped?"#DCE0E3":"#E5C56A"}; border-radius:6px; padding:8px 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; opacity:${skipped?0.8:1};">
@@ -767,7 +771,10 @@ function mfReviewItemRow(item){
       ${skipped?'<span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3; color:#6B7A87;">見送り済み</span>':""}
       <span style="font-weight:700;">${esc(item.partner_name||"(取引先不明)")}</span>
       <span style="color:#3D4F5E;">${item.amount?fmtYen(item.amount):""}${item.mf_number?`　No.${esc(item.mf_number)}`:""}${item.issue_date?`　${esc(item.issue_date)}`:""}</span>
-      <select data-mf-link-sel="${item.id}" style="margin-left:auto; min-width:180px;"><option value="">紐付ける案件を選択</option>${caseOpts}</select>
+      <div style="margin-left:auto; display:flex; gap:4px;">
+        <input type="text" data-mf-search="${item.id}" placeholder="案件名・顧客で検索" style="width:130px; font-size:12px;">
+        <select data-mf-link-sel="${item.id}" style="min-width:170px;"><option value="">紐付ける案件を選択</option>${caseOpts}</select>
+      </div>
       <button class="btn btn-small btn-primary" data-mf-link="${item.id}">紐付ける</button>
       <button class="btn btn-small btn-secondary" data-mf-new="${item.id}">新規案件として登録</button>
       ${skipped
@@ -791,6 +798,11 @@ function renderMfReviewQueue(){
     </div>
   </div>`;
   $("mfShowSkipped")?.addEventListener("change",(e)=>{ showSkippedMf=e.target.checked; renderMfReviewQueue(); });
+  document.querySelectorAll("[data-mf-search]").forEach(inp=>inp.addEventListener("input",()=>{
+    const sel=document.querySelector(`[data-mf-link-sel="${inp.dataset.mfSearch}"]`); if(!sel) return;
+    const q=inp.value.trim().toLowerCase();
+    Array.from(sel.options).forEach(opt=>{ if(!opt.value) return; opt.hidden = !!q && !opt.textContent.toLowerCase().includes(q); });
+  }));
   document.querySelectorAll("[data-mf-link]").forEach(b=>b.addEventListener("click", async ()=>{
     const id=+b.dataset.mfLink;
     const sel=document.querySelector(`[data-mf-link-sel="${id}"]`);
@@ -798,8 +810,17 @@ function renderMfReviewQueue(){
     if(!caseId){ alert("紐付ける案件を選択してください。"); return; }
     const item=mfReviewQueue.find(x=>x.id===id); if(!item) return;
     const c=cases.find(x=>x.id===caseId); if(!c) return;
-    if(item.type==="quote"){ c.mfQuoteId=item.mf_id; c.mfQuoteNumber=item.mf_number; if(item.amount) c.quoteAmount=String(item.amount); }
-    else{ c.mfBillingId=item.mf_id; if(item.amount) c.orderAmount=String(item.amount); }
+    if(item.type==="quote"){
+      c.mfQuoteId=item.mf_id; c.mfQuoteNumber=item.mf_number; if(item.amount) c.quoteAmount=String(item.amount);
+      if(item.issue_date) c.mfQuoteDate=item.issue_date;
+      c.status="見積提出";
+    }else{
+      c.mfBillingId=item.mf_id; if(item.amount) c.orderAmount=String(item.amount);
+      c.status="請求書提出";
+      if(c.billingStatus!=="入金済") c.billingStatus="請求済";
+      const dueDate=item.raw?.due_date;
+      if(dueDate) c.paymentDate=dueDate;
+    }
     c.mfLinkedAt=new Date().toISOString(); c.updatedAt=Date.now();
     await saveCaseRow(c);
     await logCaseHistory(c.id, "MF手動紐付け", `${item.type==="quote"?"見積":"請求"} ${item.mf_number||item.mf_id}`);
@@ -811,14 +832,22 @@ function renderMfReviewQueue(){
   document.querySelectorAll("[data-mf-new]").forEach(b=>b.addEventListener("click", async ()=>{
     const item=mfReviewQueue.find(x=>x.id===+b.dataset.mfNew); if(!item) return;
     await loadCustomers();
-    pendingMfLink={itemId:item.id, type:item.type, mf_id:item.mf_id, mf_number:item.mf_number};
-    openCase(null, {
+    pendingMfLink={itemId:item.id, type:item.type, mf_id:item.mf_id, mf_number:item.mf_number, issue_date:item.issue_date};
+    const prefill={
       customerName: item.partner_name||"",
       name: item.partner_name? `${item.partner_name}` : "",
-      quoteAmount: item.type==="quote"? String(item.amount||"") : "",
-      orderAmount: item.type==="billing"? String(item.amount||"") : "",
       note: `MF${item.type==="quote"?"見積":"請求"} No.${item.mf_number||item.mf_id}より作成`,
-    });
+    };
+    if(item.type==="quote"){
+      prefill.quoteAmount=String(item.amount||"");
+      prefill.status="見積提出";
+    }else{
+      prefill.orderAmount=String(item.amount||"");
+      prefill.status="請求書提出";
+      prefill.billingStatus="請求済";
+      prefill.paymentDate=item.raw?.due_date||"";
+    }
+    openCase(null, prefill);
   }));
   document.querySelectorAll("[data-mf-skip]").forEach(b=>b.addEventListener("click", async ()=>{
     if(!confirm("この項目を見送りますか?(あとで「見送り済みも表示」から紐付け直せます)")) return;
@@ -858,7 +887,7 @@ function renderCases(){
         </div>
         ${cs.customerName? `<div style="margin-top:5px; font-size:12.5px; font-weight:700; color:#17242F;">顧客:${esc(cs.customerName)}${cs.execDate?`　<span style="font-weight:400; color:#3D4F5E;">実施日:${esc(cs.execDate)}</span>`:""}</div>`: (cs.execDate?`<div style="margin-top:5px; font-size:12.5px; color:#3D4F5E;">実施日:${esc(cs.execDate)}</div>`:"")}
         ${amounts? `<div style="margin-top:4px; font-size:12.5px; color:#2F6A4F; font-weight:700;">${amounts}</div>`:""}
-        ${cs.nextPlan||cs.note? `<div style="margin-top:5px; font-size:12px; color:#3D4F5E;">${cs.nextPlan?`来週:${esc(cs.nextPlan)}<br>`:""}${cs.note?`備考:${esc(cs.note)}`:""}</div>`:""}
+        ${cs.nextPlan||cs.note? `<div style="margin-top:5px; font-size:12px; color:#3D4F5E; white-space:pre-wrap;">${cs.nextPlan?`来週:${esc(cs.nextPlan)}\n`:""}${cs.note?`備考:${esc(cs.note)}`:""}</div>`:""}
         <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
           <button class="btn btn-secondary btn-small" data-case-edit="${cs.id}">編集</button>
           <button class="btn btn-secondary btn-small" data-case-cm="${cs.id}">コメント${commentCounts[cs.id]?`(${commentCounts[cs.id]})`:""}</button>
@@ -914,8 +943,8 @@ function openCase(id, prefill){
       <label style="font-size:12px; font-weight:700;">請求状況<select id="cfBilling" class="w100" style="margin-top:4px;">${opt(BILLING_STATUSES, editingCase.billingStatus||BILLING_STATUSES[0])}</select></label>
       <label style="font-size:12px; font-weight:700;">入金予定日<input type="date" id="cfPayDate" class="w100" value="${esc(editingCase.paymentDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7A87; font-size:11px;">売上予測の計上月になります</span></label>
     </div>
-    <label style="font-size:12px; font-weight:700;">来週の予定<input type="text" id="cfNext" class="w100" value="${esc(editingCase.nextPlan)}" style="margin-top:4px;"></label>
-    <label style="font-size:12px; font-weight:700;">備考<input type="text" id="cfNote" class="w100" value="${esc(editingCase.note)}" style="margin-top:4px;"></label>`;
+    <label style="font-size:12px; font-weight:700;">来週の予定<textarea id="cfNext" class="w100" rows="2" style="margin-top:4px;">${esc(editingCase.nextPlan)}</textarea></label>
+    <label style="font-size:12px; font-weight:700;">備考<textarea id="cfNote" class="w100" rows="2" style="margin-top:4px;">${esc(editingCase.note)}</textarea></label>`;
   $("caseModal").classList.add("show");
 }
 async function saveCase(){
@@ -961,7 +990,7 @@ async function saveCase(){
   }
   if(ok && pendingMfLink){
     const link=pendingMfLink; pendingMfLink=null;
-    if(link.type==="quote"){ editingCase.mfQuoteId=link.mf_id; editingCase.mfQuoteNumber=link.mf_number; }
+    if(link.type==="quote"){ editingCase.mfQuoteId=link.mf_id; editingCase.mfQuoteNumber=link.mf_number; if(link.issue_date) editingCase.mfQuoteDate=link.issue_date; }
     else{ editingCase.mfBillingId=link.mf_id; }
     editingCase.mfLinkedAt=new Date().toISOString();
     await saveCaseRow(editingCase);
@@ -1499,8 +1528,6 @@ async function importTeamsNippo(interactive=true){
   }
 }
 async function renderNippo(autoImport=true){
-  $("nippoDate").value=todayStr();
-  $("nippoTeamsState").textContent="";
   const sel=$("nippoFilter"); const cur=sel.value||"全員";
   sel.innerHTML=`<option>全員</option>`+master.members.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
   await renderNippoList();
@@ -1569,41 +1596,6 @@ async function loadChannelsForTeam(){
   const j=await graphGet(`https://graph.microsoft.com/v1.0/teams/${tid}/channels`);
   $("selChannel").innerHTML=(j.value||[]).map(c=>`<option value="${esc(c.id)}" ${c.id===settings.teamsChannelId?"selected":""}>${esc(c.displayName)}</option>`).join("");
 }
-async function postNippo(){
-  const content=$("nippoInput").value.trim();
-  const date=$("nippoDate").value||todayStr();
-  if(!content){ alert("日報の内容を入力してください。"); return; }
-  let teamsSent=false;
-  if(settings.teamsWebhook){
-    try{
-      await fetch(settings.teamsWebhook,{
-        method:"POST", mode:"no-cors",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          type:"message",
-          attachments:[{
-            contentType:"application/vnd.microsoft.card.adaptive",
-            content:{
-              "$schema":"http://adaptivecards.io/schemas/adaptive-card.json",
-              type:"AdaptiveCard", version:"1.4",
-              body:[
-                {type:"TextBlock", weight:"Bolder", size:"Medium", text:`【日報】${me}　${date}`},
-                {type:"TextBlock", text:content, wrap:true}
-              ]
-            }
-          }]
-        })
-      });
-      teamsSent=true;
-    }catch(e){ console.error(e); }
-  }
-  await sb.from("nippo").insert({author:me, report_date:date, content, teams_sent:teamsSent});
-  await logAction("日報送信", `${date}`);
-  $("nippoInput").value="";
-  await renderNippo();
-  setStatus("日報を送信しました");
-}
-
 /* ---------- 会議モード ---------- */
 function busyColor(level){ const i=master.busyLevels.indexOf(level); return i>=0? BUSY_PALETTE[i%BUSY_PALETTE.length] : "#B0B7BD"; }
 function mandaySum(m){ return cases.filter(c=>!c.archived&&c.owner===m).reduce((a,c)=>a+(parseFloat(c.manday)||0),0); }
@@ -1924,16 +1916,6 @@ function renderSettings(){
       <div style="font-size:11.5px; color:#6B7A87; margin-top:4px;">※上記のテナントID・クライアントIDは、週間ボードの「Outlookカレンダーから自動取込」ボタンでも共通利用します(各自のOutlook予定表から直接取込。初回のみ本人のMicrosoftアカウントでサインインが必要です)。</div>
     </div>
     <div class="card">
-      <h3 style="font-weight:800; margin-bottom:8px;">(任意)アプリ→Teams投稿(Webhook URL)</h3>
-      <ol style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px; margin-bottom:10px;">
-        <li>Teamsの日報チャネル右上「…」→「ワークフロー」を開く</li>
-        <li>「<strong>Webhook 要求を受信したときにチャネルに投稿する</strong>」テンプレートを追加</li>
-        <li>作成完了時に表示される URL をコピーして下に貼り付け</li>
-      </ol>
-      <input type="text" id="teamsWebhook" class="w100" placeholder="https://prod-xx.japaneast.logic.azure.com/workflows/…" value="${esc(settings.teamsWebhook||"")}">
-      <div style="font-size:11.5px; color:#6B7A87; margin-top:6px;">貼り付けると自動保存。日報タブから送信すると、このチャネルに自動投稿されます。</div>
-    </div>
-    <div class="card">
       <h3 style="font-weight:800; margin-bottom:8px;">Googleカレンダー自動連携設定</h3>
       <ol style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px; margin-bottom:10px;">
         <li>Google Cloud Console でプロジェクトを作成し「Google Calendar API」を有効化(手順書参照)</li>
@@ -1984,7 +1966,6 @@ function renderSettings(){
         <li>同時編集時は、自分の欄のみ編集してください</li>
       </ul>
     </div>`;
-  $("teamsWebhook").addEventListener("change",()=>{ settings.teamsWebhook=$("teamsWebhook").value.trim(); queueSave("settings"); });
   $("googleClientId").addEventListener("change",()=>{ settings.googleClientId=$("googleClientId").value.trim(); queueSave("settings"); });
   $("teamsTenantId").addEventListener("change",()=>{ settings.teamsTenantId=$("teamsTenantId").value.trim(); msalApp=null; queueSave("settings"); });
   $("teamsClientId").addEventListener("change",()=>{ settings.teamsClientId=$("teamsClientId").value.trim(); msalApp=null; queueSave("settings"); });
@@ -2051,7 +2032,6 @@ document.addEventListener("DOMContentLoaded", ()=>{
   $("filterOwner").addEventListener("change", renderCases);
   $("showArchived").addEventListener("change", renderCases);
   $("btnPostAnn").addEventListener("click", postAnnouncement);
-  $("btnPostNippo").addEventListener("click", postNippo);
   $("btnTeamsImport").addEventListener("click", async ()=>{ await importTeamsNippo(true); await renderNippoList(); });
   $("nippoFilter").addEventListener("change", renderNippoList);
   $("btnCommentClose").addEventListener("click", ()=>$("commentModal").classList.remove("show"));
