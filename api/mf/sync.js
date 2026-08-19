@@ -47,6 +47,82 @@ function findQuoteLinkedCandidates(activeCases, partnerName) {
   return activeCases.filter((c) => c.mfQuoteId && !c.mfBillingId && normalizePartnerName(c.customerName) === normTarget);
 }
 
+/*
+ * MFの取引先(partners)を顧客マスタ(customers)へ同期する。MFを正マスタとする。
+ * - mf_partner_id一致 → name/name_kanaはMFで上書き、連絡先系はアプリ側が空の場合のみ補完
+ * - 未一致でも正規化名が一致する既存顧客があれば、その顧客にmf_partner_idを採用(マスタ自体の名寄せ)
+ * - どちらも無ければ新規insert
+ * 返り値: mf_partner_id → 顧客行 のMap(案件の顧客自動紐付けに使う)
+ */
+async function syncPartners(accessToken, summary) {
+  const partners = await mf.listPartners(accessToken);
+  summary.partnersSeen = partners.length;
+  summary.partnersUpserted = 0;
+  const customers = await db.getCustomers();
+  const byPartnerId = new Map(customers.filter((c) => c.mf_partner_id).map((c) => [String(c.mf_partner_id), c]));
+  const byNormName = new Map();
+  customers.forEach((c) => {
+    const k = normalizePartnerName(c.name);
+    if (k && !byNormName.has(k)) byNormName.set(k, c);
+  });
+
+  const toInsert = [];
+  for (const p of partners) {
+    const dept = (p.departments || [])[0] || {};
+    const address = [dept.zip, dept.prefecture, dept.address1, dept.address2].filter(Boolean).join(" ");
+    const fromMf = {
+      name: p.name || "",
+      name_kana: p.name_kana || null,
+      contact_person: dept.person_name || null,
+      phone: dept.tel || null,
+      email: dept.email || null,
+      address: address || null,
+    };
+    if (!fromMf.name) continue;
+
+    let existing = byPartnerId.get(String(p.id));
+    if (!existing) {
+      const nameHit = byNormName.get(normalizePartnerName(fromMf.name));
+      if (nameHit && !nameHit.mf_partner_id) existing = nameHit;
+    }
+
+    if (existing) {
+      const patch = {};
+      if (existing.mf_partner_id !== String(p.id)) patch.mf_partner_id = String(p.id);
+      if (existing.name !== fromMf.name) patch.name = fromMf.name;
+      if (fromMf.name_kana && existing.name_kana !== fromMf.name_kana) patch.name_kana = fromMf.name_kana;
+      for (const k of ["contact_person", "phone", "email", "address"]) {
+        if (!existing[k] && fromMf[k]) patch[k] = fromMf[k];
+      }
+      if (Object.keys(patch).length) {
+        await db.updateCustomer(existing.id, patch);
+        Object.assign(existing, patch);
+        summary.partnersUpserted++;
+      }
+      byPartnerId.set(String(p.id), existing);
+    } else {
+      const row = { mf_partner_id: String(p.id), ...fromMf, note: "" };
+      toInsert.push(row);
+    }
+  }
+  if (toInsert.length) {
+    await db.insertCustomers(toInsert);
+    summary.partnersUpserted += toInsert.length;
+    /* insert後のid付き行を取り直してMapへ反映 */
+    const refreshed = await db.getCustomers();
+    refreshed.forEach((c) => { if (c.mf_partner_id) byPartnerId.set(String(c.mf_partner_id), c); });
+  }
+  return byPartnerId;
+}
+
+/* 案件に顧客が未設定で、MFのpartner_idがマスタに存在すれば顧客を自動セットするpatchを返す */
+function customerPatchFor(target, partnerId, partnersById) {
+  if (target.customerId || !partnerId) return {};
+  const cust = partnersById.get(String(partnerId));
+  if (!cust) return {};
+  return { customerId: String(cust.id), customerName: cust.name };
+}
+
 async function ensureAccessToken() {
   const tokens = await admin.getMfTokens();
   if (!tokens || !tokens.refresh_token) return null;
@@ -73,6 +149,10 @@ module.exports = async function handler(req, res) {
       res.status(400).json({ error: "not_connected" });
       return;
     }
+
+    const partnersById = await syncPartners(accessToken, summary).catch((e) => {
+      throw new Error(`partners sync failed: ${e.message || e}`);
+    });
 
     const [rawQuotes, rawBillings] = await Promise.all([
       mf.listRecent(accessToken, "quotes"),
@@ -122,6 +202,7 @@ module.exports = async function handler(req, res) {
           mfQuoteDate: q.issueDate || null,
           mfLinkedAt: new Date().toISOString(),
           quoteAmount: String(q.amount),
+          ...customerPatchFor(target, q.partnerId, partnersById),
         };
         /* 請求書が既に紐付いている(=請求書提出まで進んでいる)案件には、見積の紐付けで
            ステータスを「見積提出」に巻き戻さない(請求書が先に登録されたケースを想定) */
@@ -177,7 +258,7 @@ module.exports = async function handler(req, res) {
         continue;
       }
       await db.resolveReviewQueueItem("billing", b.mfId, target.id);
-      const patch = {};
+      const patch = { ...customerPatchFor(target, b.partnerId, partnersById) };
       const firstLink = !target.mfBillingId;
       if (firstLink) {
         patch.mfBillingId = b.mfId;
