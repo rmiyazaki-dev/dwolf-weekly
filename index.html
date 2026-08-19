@@ -917,16 +917,21 @@ function renderCases(){
 }
 function openCase(id, prefill){
   editingCase = id==null
-    ? {id:null, owner:me, category:master.categories[0], name:"", status:master.statuses[0], manday:"", nextPlan:"", note:"", archived:false,
+    ? {id:null, owner:me, salesOwner:"", flightOwner:"", category:master.categories[0], name:"", status:master.statuses[0], manday:"", nextPlan:"", note:"", archived:false,
        customerId:"", customerName:"", quoteAmount:"", orderAmount:"", billingStatus:BILLING_STATUSES[0], execDate:"", dueDate:"", paymentDate:"", ...(prefill||{})}
     : structuredClone(cases.find(x=>x.id===id));
   $("caseModalTitle").textContent=editingCase.id? "案件を編集" : "案件を追加";
   const opt=(arr,cur)=>arr.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("");
+  const optBlank=(arr,cur)=>`<option value="" ${!cur?"selected":""}>(未設定)</option>`+arr.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("");
   const custOpts=`<option value="">(選択なし・下に直接入力)</option>`+customers.map(c=>`<option value="${c.id}" ${String(editingCase.customerId)===String(c.id)?"selected":""}>${esc(c.name)}</option>`).join("");
   $("caseFormGrid").innerHTML=`
     <div class="modal-cols">
       <label style="font-size:12px; font-weight:700;">担当<select id="cfOwner" class="w100" style="margin-top:4px;">${opt(master.members, editingCase.owner)}</select></label>
       <label style="font-size:12px; font-weight:700;">分類<select id="cfCat" class="w100" style="margin-top:4px;">${opt(master.categories, editingCase.category)}</select></label>
+    </div>
+    <div class="modal-cols">
+      <label style="font-size:12px; font-weight:700;">営業担当<select id="cfSalesOwner" class="w100" style="margin-top:4px;">${optBlank(master.members, editingCase.salesOwner)}</select><span style="font-weight:400; color:#6B7A87; font-size:11px;">受注額の集計に使用</span></label>
+      <label style="font-size:12px; font-weight:700;">フライト担当<select id="cfFlightOwner" class="w100" style="margin-top:4px;">${optBlank(master.members, editingCase.flightOwner)}</select><span style="font-weight:400; color:#6B7A87; font-size:11px;">売上合計の集計に使用</span></label>
     </div>
     <label style="font-size:12px; font-weight:700;">案件名<input type="text" id="cfName" class="w100" value="${esc(editingCase.name)}" style="margin-top:4px;"></label>
     <div class="modal-cols">
@@ -956,6 +961,8 @@ function openCase(id, prefill){
 async function saveCase(){
   const before=editingCase.id? cases.find(x=>x.id===editingCase.id) : null;
   editingCase.owner=$("cfOwner").value;
+  editingCase.salesOwner=$("cfSalesOwner").value;
+  editingCase.flightOwner=$("cfFlightOwner").value;
   editingCase.category=$("cfCat").value;
   editingCase.name=$("cfName").value.trim();
   editingCase.status=$("cfStatus").value;
@@ -1149,6 +1156,7 @@ function renderDashboard(){
   const num=(v)=>parseFloat(v)||0;
   const sum=(arr,f)=>arr.reduce((a,c)=>a+f(c),0);
   const orderTotal=sum(active,c=>num(c.orderAmount));
+  const quoteTotal=sum(active,c=>num(c.quoteAmount));
   const unbilled=sum(active.filter(c=>num(c.orderAmount)>0&&(!c.billingStatus||c.billingStatus==="未請求")),c=>num(c.orderAmount));
   const billed=sum(active.filter(c=>c.billingStatus==="請求済"),c=>num(c.orderAmount));
   const paid=sum(cases.filter(c=>c.billingStatus==="入金済"),c=>num(c.orderAmount));
@@ -1187,6 +1195,20 @@ function renderDashboard(){
     amount:sum(active.filter(c=>c.owner===m),c=>num(c.orderAmount)),
     extra:`｜${sum(active.filter(c=>c.owner===m),c=>num(c.manday)).toFixed(1)}人日`,
   })).filter(r=>r.count>0);
+  const byRole=(field)=>{
+    const labels=[...master.members,"未分類"];
+    return labels.map((m,i)=>{
+      const matched = m==="未分類"? active.filter(c=>!c[field]) : active.filter(c=>c[field]===m);
+      return {
+        label:m,
+        color: m==="未分類"? "#8A959E" : undefined,
+        count:matched.length,
+        amount:sum(matched,c=>num(c.orderAmount)),
+      };
+    }).filter(r=>r.count>0);
+  };
+  const bySalesOwner=byRole("salesOwner");
+  const byFlightOwner=byRole("flightOwner");
 
   /* ===== 期(6月末決算)・月次の受注/売上予測 ===== */
   const fySet=new Set([currentFY()]);
@@ -1310,6 +1332,7 @@ function renderDashboard(){
   $("dashboardPanel").innerHTML=`
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
       ${kpi("進行中案件", `${active.length}件`, "")}
+      ${kpi("見積合計(進行中)", fmtYen(quoteTotal)||"¥0", "")}
       ${kpi("受注額合計(進行中)", fmtYen(orderTotal)||"¥0", "")}
       ${kpi("未請求", fmtYen(unbilled)||"¥0", "受注済・請求前")}
       ${kpi("請求済(入金待ち)", fmtYen(billed)||"¥0", "")}
@@ -1319,6 +1342,8 @@ function renderDashboard(){
     ${fyPanel}
     ${barTable("分類別(進行中)", byCat)}
     ${barTable("担当別(進行中)", byOwner)}
+    ${barTable("営業担当別 受注額(進行中)", bySalesOwner)}
+    ${barTable("フライト担当別 売上合計(進行中)", byFlightOwner)}
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:10px;">今月の実施案件(${thisMonth})</h3>
       ${monthExec.length===0? `<div style="color:#6B7A87; font-size:12px;">今月の実施予定はありません。</div>` : `
