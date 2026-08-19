@@ -1270,12 +1270,16 @@ async function reflectNippoToMeeting(author){
   await loadWeek();
   const s=toISODate(monday); const eDate=new Date(monday); eDate.setDate(eDate.getDate()+4); const e=toISODate(eDate);
   const {data}=await sb.from("nippo").select("*").eq("author",author).gte("report_date",s).lte("report_date",e).order("report_date",{ascending:true});
-  const items=(data||[]).map(n=>{ const f=parseNippoFields(n.content); return {date:n.report_date, work:f.work, issue:f.issue}; }).filter(x=>x.work||x.issue);
+  const source=(data||[]).map(n=>{ const f=parseNippoFields(n.content); return {date:n.report_date, work:f.work, issue:f.issue}; }).filter(x=>x.work||x.issue);
   week.nippoSummary=week.nippoSummary||{};
-  week.nippoSummary[author]=items;
+  const existing=week.nippoSummary[author]||[];
+  const existingDates=new Set(existing.map(x=>x.date));
+  const added=source.filter(it=>!existingDates.has(it.date));
+  const merged=[...existing, ...added].sort((a,b)=>a.date.localeCompare(b.date));
+  week.nippoSummary[author]=merged;
   await saveWeekNow();
-  await logAction("会議資料に反映", `${author}:${items.length}件(${fmtShort(monday)}週)`);
-  return items.length;
+  await logAction("会議資料に反映", `${author}:新規${added.length}件(${fmtShort(monday)}週)`);
+  return added.length;
 }
 async function renderNippoList(){
   const since=new Date(); since.setDate(since.getDate()-10);
@@ -1294,7 +1298,7 @@ async function renderNippoList(){
   document.querySelectorAll("[data-nippo-reflect]").forEach(b=>b.addEventListener("click", async ()=>{
     b.disabled=true; b.textContent="反映中…";
     const cnt=await reflectNippoToMeeting(b.dataset.nippoReflect);
-    showImportMsg(`${b.dataset.nippoReflect}さんの今週分(${fmtShort(monday)}週)を会議資料・社長報告に反映しました(${cnt}件)。`);
+    showImportMsg(`${b.dataset.nippoReflect}さんの今週分(${fmtShort(monday)}週)を会議資料・社長報告に反映しました(新規${cnt}件。会議モードの内容は編集可能です)。`);
     b.disabled=false; b.textContent="会議資料に反映";
   }));
 }
@@ -1376,18 +1380,49 @@ function renderMeeting(){
       </div>
       ${items.length? `
       <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
-        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">日報より:今週の実施内容(自動集計)</div>
-        ${items.map(it=>`
-          <div style="font-size:12.5px; margin-bottom:6px; padding-bottom:6px; border-bottom:1px dashed #EEE;">
-            <strong>${esc(it.date)}</strong>${it.work? `　業務内容:${esc(it.work)}`:""}
-            ${it.issue? `<div style="color:#B34608; margin-top:2px;">相談・報告:${esc(it.issue)}</div>`:""}
+        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">日報より:今週の実施内容(自動集計・編集可)</div>
+        ${items.map((it,idx)=>`
+          <div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px dashed #EEE;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <strong style="font-size:12px;">${esc(it.date)}</strong>
+              <button class="btn btn-small btn-secondary btn-danger" style="margin-left:auto;" data-ns-del="${esc(m)}|${idx}">削除</button>
+            </div>
+            <label style="font-size:11px; color:#6B7A87; display:block; margin-top:3px;">業務内容</label>
+            <textarea rows="1" data-ns-work="${esc(m)}|${idx}" style="margin-top:2px; font-size:12.5px;">${esc(it.work||"")}</textarea>
+            <label style="font-size:11px; color:#6B7A87; display:block; margin-top:3px;">相談・報告事項</label>
+            <textarea rows="2" data-ns-issue="${esc(m)}|${idx}" style="margin-top:2px; font-size:12.5px; ${it.issue?"background:#FFF8F5;":""}">${esc(it.issue||"")}</textarea>
           </div>`).join("")}
-      </div>`:""}
+        <button class="btn btn-small btn-secondary" data-ns-add="${esc(m)}">＋ 行を追加</button>
+      </div>`:`
+      <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
+        <button class="btn btn-small btn-secondary" data-ns-add="${esc(m)}">＋ 日報より:今週の実施内容を手入力で追加</button>
+      </div>`}
     </div>`;
   }).join("");
   document.querySelectorAll("[data-busy]").forEach(s=>s.addEventListener("change",()=>{ week.busy[s.dataset.busy]=s.value; queueSave("week"); }));
   document.querySelectorAll("[data-hneed]").forEach(t=>t.addEventListener("change",()=>{ week.helpNeed[t.dataset.hneed]=t.value; queueSave("week"); }));
   document.querySelectorAll("[data-hgive]").forEach(t=>t.addEventListener("change",()=>{ week.helpGive[t.dataset.hgive]=t.value; queueSave("week"); }));
+  document.querySelectorAll("[data-ns-work]").forEach(t=>t.addEventListener("change",()=>{
+    const [m,idx]=t.dataset.nsWork.split("|");
+    week.nippoSummary[m][+idx].work=t.value; queueSave("week");
+  }));
+  document.querySelectorAll("[data-ns-issue]").forEach(t=>t.addEventListener("change",()=>{
+    const [m,idx]=t.dataset.nsIssue.split("|");
+    week.nippoSummary[m][+idx].issue=t.value; queueSave("week");
+  }));
+  document.querySelectorAll("[data-ns-del]").forEach(b=>b.addEventListener("click",()=>{
+    const [m,idx]=b.dataset.nsDel.split("|");
+    if(!confirm("この行を削除しますか?")) return;
+    week.nippoSummary[m].splice(+idx,1);
+    queueSave("week"); renderMeeting();
+  }));
+  document.querySelectorAll("[data-ns-add]").forEach(b=>b.addEventListener("click",()=>{
+    const m=b.dataset.nsAdd;
+    week.nippoSummary=week.nippoSummary||{};
+    week.nippoSummary[m]=week.nippoSummary[m]||[];
+    week.nippoSummary[m].push({date:todayStr(), work:"", issue:""});
+    queueSave("week"); renderMeeting();
+  }));
   $("meetingNote").value=week.meetingNote||"";
   $("decisions").value=week.decisions||"";
 }
