@@ -107,7 +107,11 @@
 <body>
 <div class="container">
   <header id="appHeader" style="display:none;">
-    <div class="logo"><span class="logo-main">D-WOLF</span><span class="logo-sub">WEEKLY OPS v2</span></div>
+    <div class="logo">
+      <img src="logo.png" alt="D-WOLF" style="height:36px; background:#fff; border-radius:6px; padding:2px 8px; display:block;"
+           onerror="this.style.display='none'; document.getElementById('logoTextFallback').style.display='flex';">
+      <span id="logoTextFallback" style="display:none; align-items:baseline; gap:8px;"><span class="logo-main">D-WOLF</span><span class="logo-sub">WEEKLY OPS v2</span></span>
+    </div>
     <div class="week-nav">
       <button id="btnPrevW">‹</button>
       <span class="label" id="weekLabel"></span>
@@ -144,8 +148,12 @@
     <!-- ログイン -->
     <div id="loginScreen" class="login-wrap">
       <div class="login-box">
-        <div style="color:#E8590C; font-size:12px; letter-spacing:4px; font-weight:800; margin-bottom:6px;">SHIMIZUGUMI DRONE UNIT</div>
-        <h1 style="font-size:34px; font-weight:900; margin:0 0 4px; letter-spacing:2px;">D-WOLF</h1>
+        <img src="logo.png" alt="D-WOLF" style="max-width:220px; margin:0 auto 8px; display:block;"
+             onerror="this.style.display='none'; document.getElementById('loginLogoFallback').style.display='block';">
+        <div id="loginLogoFallback" style="display:none;">
+          <div style="color:#E8590C; font-size:12px; letter-spacing:4px; font-weight:800; margin-bottom:6px;">SHIMIZUGUMI DRONE UNIT</div>
+          <h1 style="font-size:34px; font-weight:900; margin:0 0 4px; letter-spacing:2px;">D-WOLF</h1>
+        </div>
         <div style="color:#3D4F5E; font-size:13px; margin-bottom:24px;">週次オペレーションボード｜名前を選んでパスワードを入力</div>
         <div id="memberButtons"></div>
         <input type="password" id="loginPw" class="w100" placeholder="共通パスワード" style="margin-top:12px; padding:11px;">
@@ -824,7 +832,8 @@ async function linkMfItemToCase(item, c){
   /* 顧客が未設定で、MFの取引先がマスタに同期済みなら自動で顧客もセットする */
   if(!c.customerId){
     const pid=String(item.raw?.partner_id||"");
-    const cust=pid? customers.find(m=>String(m.mf_partner_id||"")===pid) : null;
+    const found=pid? customers.find(m=>String(m.mf_partner_id||"")===pid) : null;
+    const cust=found? resolveCustomer(found) : null;
     if(cust){ c.customerId=String(cust.id); c.customerName=cust.name; }
   }
   c.mfLinkedAt=new Date().toISOString(); c.updatedAt=Date.now();
@@ -920,7 +929,8 @@ function renderMfReviewQueue(){
     await loadCustomers();
     pendingMfLink={itemId:item.id, type:item.type, mf_id:item.mf_id, mf_number:item.mf_number, issue_date:item.issue_date};
     const pid=String(item.raw?.partner_id||"");
-    const custMatch=pid? customers.find(m=>String(m.mf_partner_id||"")===pid) : null;
+    const custFound=pid? customers.find(m=>String(m.mf_partner_id||"")===pid) : null;
+    const custMatch=custFound? resolveCustomer(custFound) : null;
     const prefill={
       customerId: custMatch? String(custMatch.id) : "",
       customerName: custMatch? custMatch.name : (item.partner_name||""),
@@ -963,10 +973,19 @@ function mfNormName(name){
     .replace(/有限会社|（有）|\(有\)/g,"")
     .toLowerCase();
 }
-/* この顧客の案件: customerId一致、または(未紐付けかつ)正規化名一致 */
+/* 統合(merged_into)されていない顧客のみ。一覧・候補セレクト・集計はこちらを使う */
+function activeCustomers(){ return customers.filter(c=>!c.merged_into); }
+/* 統合済み顧客を統合先に解決する */
+function resolveCustomer(c){
+  let cur=c, hops=0;
+  while(cur && cur.merged_into && hops<5){ cur=customers.find(x=>String(x.id)===String(cur.merged_into)); hops++; }
+  return cur||c;
+}
+/* この顧客の案件: customerId一致(統合元のIDも含む)、または(未紐付けかつ)正規化名一致 */
 function casesOfCustomer(cust){
   const norm=mfNormName(cust.name);
-  return cases.filter(c=> String(c.customerId||"")===String(cust.id) || (!c.customerId && norm && mfNormName(c.customerName)===norm));
+  const idSet=new Set([String(cust.id), ...customers.filter(x=>x.merged_into && String(resolveCustomer(x).id)===String(cust.id)).map(x=>String(x.id))]);
+  return cases.filter(c=> idSet.has(String(c.customerId||"")) || (!c.customerId && norm && mfNormName(c.customerName)===norm));
 }
 function custStats(cust){
   const list=casesOfCustomer(cust);
@@ -984,7 +1003,7 @@ function renderCustomers(){
   if(custDetailId!=null){ renderCustomerDetail(); return; }
   const q=($("custSearch").value||"").trim().toLowerCase();
   const sort=$("custSort").value||"total";
-  let rows=customers.map(c=>({c, s:custStats(c)}));
+  let rows=activeCustomers().map(c=>({c, s:custStats(c)}));
   if(q) rows=rows.filter(({c})=>[c.name,c.name_kana,c.contact_person].some(v=>String(v||"").toLowerCase().includes(q)));
   if(sort==="total") rows.sort((a,b)=>b.s.total-a.s.total);
   else if(sort==="recent") rows.sort((a,b)=>String(b.s.last).localeCompare(String(a.s.last)));
@@ -1003,14 +1022,15 @@ function renderCustomers(){
             <td style="text-align:right; font-weight:700;">${s.total?fmtYen(s.total):`<span style="color:#C3C9CE;">―</span>`}</td>
             <td style="text-align:right;">${s.fyTotal?fmtYen(s.fyTotal):`<span style="color:#C3C9CE;">―</span>`}</td>
             <td>${esc(s.last||"")}</td>
-            <td style="color:#3D4F5E;">${esc(c.contact_person||"")}</td>
+            <td style="color:#3D4F5E;">${(()=>{ const ps=String(c.contact_person||"").split("\n").filter(Boolean); return ps.length? esc(ps[0])+(ps.length>1?`<span style="color:#8A959E; font-size:10.5px;"> 他${ps.length-1}名</span>`:"") : ""; })()}</td>
           </tr>`).join("")}
       </table></div>
       <div style="font-size:11.5px; color:#6B7A87;">売上は受注額ベース(完了済み案件を含む)。最終取引から${DORMANT_DAYS}日以上経過した取引実績のある顧客に「休眠」を表示しています。行をクリックすると詳細を表示します。</div>`;
   document.querySelectorAll("[data-cust-open]").forEach(tr=>tr.addEventListener("click",()=>{ custDetailId=+tr.dataset.custOpen; renderCustomers(); }));
 }
 function renderCustomerDetail(){
-  const c=customers.find(x=>String(x.id)===String(custDetailId));
+  let c=customers.find(x=>String(x.id)===String(custDetailId));
+  if(c && c.merged_into){ c=resolveCustomer(c); custDetailId=c? c.id : null; }
   if(!c){ custDetailId=null; renderCustomers(); return; }
   const s=custStats(c);
   const list=casesOfCustomer(c).sort((a,b)=>String(orderBaseDate(b)||"").localeCompare(String(orderBaseDate(a)||"")));
@@ -1042,16 +1062,44 @@ function renderCustomerDetail(){
         ${field("かな","cdKana",c.name_kana)}
       </div>
       <div class="modal-cols" style="margin-top:8px;">
-        ${field("担当者","cdPerson",c.contact_person)}
-        ${field("電話番号","cdPhone",c.phone)}
+        <label style="font-size:12px; font-weight:700;">担当者(1行に1名。複数登録可)<textarea id="cdPerson" class="w100" rows="3" placeholder="例:&#10;馬場 成信&#10;山田 太郎(経理)" style="margin-top:4px;">${esc(c.contact_person||"")}</textarea></label>
+        <div style="display:grid; gap:8px;">
+          ${field("電話番号","cdPhone",c.phone)}
+          ${field("メール","cdEmail",c.email)}
+        </div>
       </div>
-      <div class="modal-cols" style="margin-top:8px;">
-        ${field("メール","cdEmail",c.email)}
+      <div style="margin-top:8px;">
         ${field("住所","cdAddress",c.address)}
       </div>
       <label style="font-size:12px; font-weight:700; display:block; margin-top:8px;">メモ<textarea id="cdNote" class="w100" rows="2" style="margin-top:4px;">${esc(c.note||"")}</textarea></label>
       <div style="font-size:11px; color:#6B7A87; margin-top:4px;">各欄は入力後にフォーカスを外すと自動保存されます。</div>
     </div>
+    ${(()=>{
+      const norm=mfNormName(c.name);
+      const dupCandidates=activeCustomers().filter(x=>String(x.id)!==String(c.id) && mfNormName(x.name)===norm);
+      const otherOpts=activeCustomers().filter(x=>String(x.id)!==String(c.id))
+        .map(x=>`<option value="${x.id}">${esc(x.name)}${x.mf_partner_id?"(MF)":""}</option>`).join("");
+      return `
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:6px;">重複顧客の統合</h3>
+      <div style="font-size:11.5px; color:#6B7A87; margin-bottom:8px;">MF側で重複登録されている取引先を、このシステム上でだけ1つの顧客にまとめます(MF側は変更しません)。統合すると相手の案件・売上はこの顧客「${esc(c.name)}」に合算され、担当者・連絡先も引き継がれます。</div>
+      ${dupCandidates.length? `
+      <div style="display:grid; gap:6px; margin-bottom:10px;">
+        <div style="font-size:12px; font-weight:700; color:#B34608;">同名の可能性がある顧客(${dupCandidates.length}件):</div>
+        ${dupCandidates.map(x=>`
+          <div style="display:flex; align-items:center; gap:8px; border:1px solid #E5C56A; border-radius:6px; padding:6px 10px;">
+            <span style="font-weight:700;">${esc(x.name)}</span>
+            ${x.mf_partner_id?'<span class="chip" style="background:#EEF3F0; border:1px solid #D5E0DA; color:#2F6A4F;">MF</span>':""}
+            <span style="font-size:11.5px; color:#6B7A87;">${esc(String(x.contact_person||"").split("\n")[0]||"")}</span>
+            <button class="btn btn-small btn-primary" style="margin-left:auto;" data-cust-merge="${x.id}">この顧客に統合する</button>
+          </div>`).join("")}
+      </div>`:""}
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <select id="custMergeOther" style="min-width:220px;"><option value="">その他の顧客を選んで統合…</option>${otherOpts}</select>
+        <button class="btn btn-small btn-secondary" id="btnCustMergeOther">統合する</button>
+      </div>
+    </div>`;
+    })()}
     ${fyRows.length? `
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:10px;">年度別売上(受注額ベース)</h3>
@@ -1092,6 +1140,40 @@ function renderCustomerDetail(){
   }); };
   saveField("cdName","name"); saveField("cdKana","name_kana"); saveField("cdPerson","contact_person");
   saveField("cdPhone","phone"); saveField("cdEmail","email"); saveField("cdAddress","address"); saveField("cdNote","note");
+  document.querySelectorAll("[data-cust-merge]").forEach(b=>b.addEventListener("click", ()=>mergeCustomerInto(+b.dataset.custMerge, c)));
+  $("btnCustMergeOther").addEventListener("click", ()=>{
+    const id=$("custMergeOther").value;
+    if(!id){ alert("統合する顧客を選択してください。"); return; }
+    mergeCustomerInto(+id, c);
+  });
+}
+/* 重複顧客の統合: dup(統合元)をprimary(統合先)にまとめる。
+   dupの行は削除せずmerged_intoを付ける(削除するとMF同期で再作成されるため)。
+   案件のcustomerIdはprimaryに付け替え、担当者・連絡先はprimary側が空の項目のみ引き継ぐ */
+async function mergeCustomerInto(dupId, primary){
+  const dup=customers.find(x=>String(x.id)===String(dupId));
+  if(!dup || String(dup.id)===String(primary.id)) return;
+  if(!confirm(`「${dup.name}」を「${primary.name}」に統合しますか?\n(案件・売上は「${primary.name}」に合算されます。MF側は変更されません)`)) return;
+  /* 担当者は両者の行をユニオン */
+  const persons=[...new Set([...(primary.contact_person||"").split("\n"), ...(dup.contact_person||"").split("\n")].map(s=>s.trim()).filter(Boolean))].join("\n");
+  const patch={contact_person:persons};
+  for(const k of ["phone","email","address","name_kana"]){ if(!primary[k] && dup[k]) patch[k]=dup[k]; }
+  if(dup.note && !String(primary.note||"").includes(dup.note)) patch.note=[primary.note, dup.note].filter(Boolean).join(" / ");
+  await sb.from("customers").update({...patch, updated_at:new Date().toISOString()}).eq("id",primary.id);
+  Object.assign(primary, patch);
+  await sb.from("customers").update({merged_into:primary.id, updated_at:new Date().toISOString()}).eq("id",dup.id);
+  dup.merged_into=primary.id;
+  /* dupに紐付いていた案件をprimaryへ付け替え */
+  const targets=cases.filter(x=>String(x.customerId||"")===String(dup.id));
+  for(const x of targets){
+    x.customerId=String(primary.id); x.customerName=primary.name; x.updatedAt=Date.now();
+    await saveCaseRow(x);
+    await logCaseHistory(x.id, "顧客統合", `${dup.name} → ${primary.name}`);
+  }
+  await logAction("顧客統合", `${dup.name} → ${primary.name}(案件${targets.length}件を付け替え)`);
+  await Promise.all([loadCases(), loadCustomers()]);
+  renderCustomers();
+  setStatus("統合しました");
 }
 /* 名寄せツール: customerId未設定の案件を顧客名ごとにまとめて、マスタへ一括紐付け */
 function renderCustMergeBanner(){
@@ -1099,13 +1181,13 @@ function renderCustMergeBanner(){
   if(!unlinked.length){ $("custMergeBanner").innerHTML=""; return; }
   const groups={};
   unlinked.forEach(c=>{ const k=c.customerName.trim(); (groups[k]=groups[k]||[]).push(c); });
-  const custOpts=(selectedId)=>customers.map(m=>`<option value="${m.id}" ${String(m.id)===String(selectedId)?"selected":""}>${esc(m.name)}</option>`).join("");
+  const custOpts=(selectedId)=>activeCustomers().map(m=>`<option value="${m.id}" ${String(m.id)===String(selectedId)?"selected":""}>${esc(m.name)}</option>`).join("");
   $("custMergeBanner").innerHTML=`
   <div class="alert alert-warning">
     <b>名寄せ:</b> 顧客マスタに紐付いていない案件が${unlinked.length}件あります。紐付けると顧客別の集計に正しく反映されます。
     <div style="display:grid; gap:8px; margin-top:8px;">
       ${Object.entries(groups).map(([name,list])=>{
-        const suggest=customers.find(m=>mfNormName(m.name)===mfNormName(name));
+        const suggest=activeCustomers().find(m=>mfNormName(m.name)===mfNormName(name));
         return `
         <div style="background:#fff; border:1px solid #E5C56A; border-radius:6px; padding:8px 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <span style="font-weight:700;">${esc(name)}</span>
@@ -1702,7 +1784,7 @@ function renderDashboard(){
   const custGroupKey=(c)=>{
     if(c.customerId) return `id:${c.customerId}`;
     const norm=mfNormName(c.customerName);
-    const m=norm? customers.find(x=>mfNormName(x.name)===norm) : null;
+    const m=norm? activeCustomers().find(x=>mfNormName(x.name)===norm) : null;
     return m? `id:${m.id}` : `name:${norm||"(顧客未設定)"}`;
   };
   const custGroups=new Map();
@@ -2172,6 +2254,7 @@ function renderMeeting(){
     const items=ns[m]||[];
     const casePlans=cases.filter(c=>!c.archived&&c.owner===m).map(c=>({
       name:c.name,
+      customerName:c.customerName||"顧客未設定",
       text:(c.weeklyPlans||[]).find(p=>p.weekKey===curKey)?.text||"",
     })).filter(x=>x.text);
     return `
@@ -2194,7 +2277,7 @@ function renderMeeting(){
       ${casePlans.length? `
       <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
         <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">案件の今週の予定</div>
-        ${casePlans.map(p=>`<div style="font-size:12.5px; margin-bottom:4px; white-space:pre-wrap;"><b>${esc(p.name)}:</b> ${esc(p.text)}</div>`).join("")}
+        ${casePlans.map(p=>`<div style="font-size:12.5px; margin-bottom:4px; white-space:pre-wrap;">・<b>${esc(p.name)}</b>｜${esc(p.customerName)}｜${esc(p.text)}</div>`).join("")}
       </div>`:""}
       ${items.length? `
       <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">

@@ -59,28 +59,42 @@ async function syncPartners(accessToken, summary) {
   summary.partnersSeen = partners.length;
   summary.partnersUpserted = 0;
   const customers = await db.getCustomers();
-  const byPartnerId = new Map(customers.filter((c) => c.mf_partner_id).map((c) => [String(c.mf_partner_id), c]));
+  const byId = new Map(customers.map((c) => [String(c.id), c]));
+  /* アプリ側で統合(merged_into)された顧客は、統合先の顧客に解決する */
+  const resolveMerged = (c) => {
+    let cur = c, hops = 0;
+    while (cur && cur.merged_into && hops < 5) { cur = byId.get(String(cur.merged_into)); hops++; }
+    return cur || c;
+  };
+  const byPartnerId = new Map(customers.filter((c) => c.mf_partner_id).map((c) => [String(c.mf_partner_id), resolveMerged(c)]));
   const byNormName = new Map();
-  customers.forEach((c) => {
+  customers.filter((c) => !c.merged_into).forEach((c) => {
     const k = normalizePartnerName(c.name);
     if (k && !byNormName.has(k)) byNormName.set(k, c);
   });
 
   const toInsert = [];
   for (const p of partners) {
-    const dept = (p.departments || [])[0] || {};
+    const depts = p.departments || [];
+    const dept = depts[0] || {};
     const address = [dept.zip, dept.prefecture, dept.address1, dept.address2].filter(Boolean).join(" ");
+    /* 担当者は全部署分をまとめて改行区切りで保持(複数担当者対応) */
+    const persons = [...new Set(depts.map((d) => d.person_name).filter(Boolean))].join("\n");
     const fromMf = {
       name: p.name || "",
       name_kana: p.name_kana || null,
-      contact_person: dept.person_name || null,
+      contact_person: persons || null,
       phone: dept.tel || null,
       email: dept.email || null,
       address: address || null,
     };
     if (!fromMf.name) continue;
 
-    let existing = byPartnerId.get(String(p.id));
+    /* 統合済みの行がこのpartner_idを持っている場合は、行の更新はせずMap解決のみ行う */
+    const rawExisting = customers.find((c) => String(c.mf_partner_id || "") === String(p.id));
+    if (rawExisting && rawExisting.merged_into) continue;
+
+    let existing = rawExisting;
     if (!existing) {
       const nameHit = byNormName.get(normalizePartnerName(fromMf.name));
       if (nameHit && !nameHit.mf_partner_id) existing = nameHit;
@@ -108,9 +122,11 @@ async function syncPartners(accessToken, summary) {
   if (toInsert.length) {
     await db.insertCustomers(toInsert);
     summary.partnersUpserted += toInsert.length;
-    /* insert後のid付き行を取り直してMapへ反映 */
+    /* insert後のid付き行を取り直してMapへ反映(統合済みは解決) */
     const refreshed = await db.getCustomers();
-    refreshed.forEach((c) => { if (c.mf_partner_id) byPartnerId.set(String(c.mf_partner_id), c); });
+    const byId2 = new Map(refreshed.map((c) => [String(c.id), c]));
+    const resolve2 = (c) => { let cur = c, hops = 0; while (cur && cur.merged_into && hops < 5) { cur = byId2.get(String(cur.merged_into)); hops++; } return cur || c; };
+    refreshed.forEach((c) => { if (c.mf_partner_id) byPartnerId.set(String(c.mf_partner_id), resolve2(c)); });
   }
   return byPartnerId;
 }
