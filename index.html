@@ -254,14 +254,25 @@
 
     <!-- 会議モード -->
     <div class="section" data-section="meeting">
-      <div class="section-header"><span class="section-num">08</span><h2 class="section-title">会議モード</h2></div>
-      <div class="alert alert-info">各自の稼働・応援依頼をその場で更新できます。会議前に「最新に更新」を押してください。</div>
+      <div class="section-header">
+        <span class="section-num">08</span><h2 class="section-title">会議モード</h2>
+        <button class="btn btn-primary" id="btnPrepareMeeting" style="margin-left:auto;">会議準備(MF同期+日報反映)</button>
+      </div>
+      <div class="alert alert-info" id="meetingPrepMsg">各自の稼働・応援依頼をその場で更新できます。会議前に「会議準備」ボタンを押すと、MF同期と全員分の日報反映をまとめて実行します。</div>
+      <div id="prevDecisionsCard"></div>
       <div id="meetingList"></div>
       <div class="card">
         <label style="font-size:12px; font-weight:700;">会議メモ(議事)</label>
         <textarea id="meetingNote" rows="4" style="margin-top:4px;"></textarea>
         <label style="font-size:12px; font-weight:700; display:block; margin-top:10px;">決定事項</label>
         <textarea id="decisions" rows="3" style="margin-top:4px;"></textarea>
+      </div>
+      <div class="card">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <h3 style="font-weight:800;">過去の会議アーカイブ</h3>
+          <button class="btn btn-secondary btn-small" id="btnMeetingArchive" style="margin-left:auto;">表示する</button>
+        </div>
+        <div id="meetingArchive" style="margin-top:8px;"></div>
       </div>
     </div>
 
@@ -551,7 +562,7 @@ async function switchTab(tab){
   if(tab==="dashboard"){ await Promise.all([loadCases(), loadCustomers()]); renderDashboard(); }
   if(tab==="feed"){ await loadAnnouncements(); renderFeed(); await renderAudit(); refreshFeedBadge(); }
   if(tab==="nippo"){ await renderNippo(); }
-  if(tab==="meeting"){ await Promise.all([loadWeek(), loadCases()]); renderMeeting(); }
+  if(tab==="meeting"){ await Promise.all([loadWeek(), loadCases(), loadPrevWeekDecisions()]); renderMeeting(); }
   if(tab==="report"){ await Promise.all([loadWeek(), loadCases()]); renderReport(); }
   if(tab==="master"){ renderMaster(); }
   if(tab==="settings"){ renderSettings(); }
@@ -1994,7 +2005,60 @@ async function loadChannelsForTeam(){
 /* ---------- 会議モード ---------- */
 function busyColor(level){ const i=master.busyLevels.indexOf(level); return i>=0? BUSY_PALETTE[i%BUSY_PALETTE.length] : "#B0B7BD"; }
 function mandaySum(m){ return cases.filter(c=>!c.archived&&c.owner===m).reduce((a,c)=>a+(parseFloat(c.manday)||0),0); }
+let prevWeekDecisions="";
+async function loadPrevWeekDecisions(){
+  const prev=new Date(monday); prev.setDate(prev.getDate()-7);
+  const {data}=await sb.from("weeks").select("data").eq("week_key",fmtKey(prev)).maybeSingle();
+  prevWeekDecisions=(data&&data.data&&data.data.decisions)||"";
+}
+/* 会議準備: MF同期 → 全員分の日報を会議資料へ反映 → 前週決定事項を再取得 */
+async function prepareMeeting(){
+  const btn=$("btnPrepareMeeting");
+  btn.disabled=true; btn.textContent="準備中…";
+  const msgs=[];
+  try{
+    try{
+      const r=await fetch("/api/mf/sync?manual=1");
+      const j=await r.json();
+      msgs.push(r.ok? `MF同期OK(見積${j.quotesSeen||0}件・請求書${j.billingsSeen||0}件)` : `MF同期エラー:${j.error||r.status}`);
+    }catch(e){ msgs.push("MF同期エラー:"+(e.message||e)); }
+    let added=0;
+    for(const m of master.members){ added+=await reflectNippoToMeeting(m); }
+    msgs.push(`日報反映OK(全員分・新規${added}件)`);
+    await Promise.all([loadWeek(), loadCases(), loadPrevWeekDecisions()]);
+    renderMeeting();
+    $("meetingPrepMsg").innerHTML=`<b>会議準備 完了:</b> ${msgs.map(esc).join("　/　")}`;
+  }catch(e){
+    $("meetingPrepMsg").innerHTML=`<span style="color:#B54747;">会議準備エラー:${esc(e.message||e)}</span>`;
+  }
+  btn.disabled=false; btn.textContent="会議準備(MF同期+日報反映)";
+}
+async function showMeetingArchive(){
+  const btn=$("btnMeetingArchive");
+  btn.disabled=true; btn.textContent="読込中…";
+  const {data}=await sb.from("weeks").select("week_key,data").order("week_key",{ascending:false}).limit(13);
+  const rows=(data||[])
+    .filter(r=>r.week_key!==fmtKey(monday))
+    .map(r=>({key:r.week_key, note:(r.data&&r.data.meetingNote)||"", dec:(r.data&&r.data.decisions)||""}))
+    .filter(r=>r.note||r.dec);
+  $("meetingArchive").innerHTML = rows.length===0
+    ? `<div style="color:#6B7A87; font-size:12px;">過去の会議メモ・決定事項はまだありません。</div>`
+    : `<div style="overflow-x:auto;"><table class="grid" style="margin-bottom:0;">
+        <tr><th style="width:110px;">週</th><th>決定事項</th><th>会議メモ</th></tr>
+        ${rows.map(r=>`<tr>
+          <td style="white-space:nowrap; font-weight:700;">${esc(weekKeyLabel(r.key))}</td>
+          <td style="white-space:pre-wrap;">${esc(r.dec||"―")}</td>
+          <td style="white-space:pre-wrap; color:#3D4F5E;">${esc(r.note||"―")}</td>
+        </tr>`).join("")}
+      </table></div>`;
+  btn.disabled=false; btn.textContent="再読込";
+}
 function renderMeeting(){
+  $("prevDecisionsCard").innerHTML = prevWeekDecisions? `
+    <div class="card" style="border-left:4px solid #B7791F;">
+      <div style="font-size:12px; font-weight:800; color:#7A5B00; margin-bottom:4px;">前週の決定事項(フォロー確認)</div>
+      <div style="white-space:pre-wrap; font-size:13px;">${esc(prevWeekDecisions)}</div>
+    </div>` : "";
   const ns=week.nippoSummary||{};
   const curKey=currentWeekKey();
   $("meetingList").innerHTML = master.members.map(m=>{
@@ -2081,6 +2145,35 @@ function renderReport(){
   const activeCases=cases.filter(c=>!c.archived);
   const th=`border:1px solid #BBB; background:#EEF1F3; padding:4px 6px; font-size:10.5px;`;
   const td=`border:1px solid #CCC; padding:4px 6px;`;
+  /* 経営数値サマリー(ダッシュボードと同じ計算式) */
+  const num=(v)=>parseFloat(v)||0;
+  const sum=(arr,f)=>arr.reduce((a,c)=>a+f(c),0);
+  const d0=new Date(); const thisMonth=`${d0.getFullYear()}-${String(d0.getMonth()+1).padStart(2,"0")}`;
+  const moOrdered=cases.filter(c=>num(c.orderAmount)>0 && (orderBaseDate(c)||"").startsWith(thisMonth));
+  const moPays=cases.filter(c=>num(c.orderAmount)>0 && (c.paymentDate||"").startsWith(thisMonth));
+  const moPayAmt=sum(moPays,c=>num(c.orderAmount));
+  const moPaidAmt=sum(moPays.filter(c=>c.billingStatus==="入金済"),c=>num(c.orderAmount));
+  const fyOrdered=cases.filter(c=>num(c.orderAmount)>0 && fyOf(orderBaseDate(c))===currentFY());
+  const fyPays=cases.filter(c=>num(c.orderAmount)>0 && fyOf(c.paymentDate)===currentFY());
+  const fyPaidAmt=sum(fyPays.filter(c=>c.billingStatus==="入金済"),c=>num(c.orderAmount));
+  const unbilledAll=sum(cases.filter(c=>c.billingStatus==="請求済"),c=>num(c.orderAmount));
+  const y=(v)=>fmtYen(v)||"¥0";
+  const bizSummary=`
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">2. 経営数値サマリー</h2>
+    <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
+      <tr>
+        <th style="${th}">今月の受注</th><th style="${th}">今月の入金予定</th><th style="${th}">うち入金済</th>
+        <th style="${th}">請求済・入金待ち(全体)</th><th style="${th}">今期受注累計</th><th style="${th}">今期入金済累計</th>
+      </tr>
+      <tr>
+        <td style="${td} text-align:right; font-weight:700;">${y(sum(moOrdered,c=>num(c.orderAmount)))}<span style="font-weight:400;">(${moOrdered.length}件)</span></td>
+        <td style="${td} text-align:right;">${y(moPayAmt)}</td>
+        <td style="${td} text-align:right; color:#2F6A4F;">${y(moPaidAmt)}</td>
+        <td style="${td} text-align:right; color:${unbilledAll>0?"#9B2C2C":"#111"};">${y(unbilledAll)}</td>
+        <td style="${td} text-align:right; font-weight:700;">${y(sum(fyOrdered,c=>num(c.orderAmount)))}<span style="font-weight:400;">(${fyOrdered.length}件)</span></td>
+        <td style="${td} text-align:right; color:#2F6A4F;">${y(fyPaidAmt)}</td>
+      </tr>
+    </table>`;
   $("printArea").innerHTML=`
   <div style="background:#fff; border:1px solid #DCE0E3; border-radius:8px; padding:22px 26px; font-size:12px; line-height:1.55; color:#111;">
     <div style="border-bottom:3px solid #17242F; padding-bottom:8px; margin-bottom:10px;">
@@ -2104,12 +2197,13 @@ function renderReport(){
           <td style="${td}">${esc(week.helpNeed[m]||"―")}</td></tr>`;
       }).join("")}
     </table>
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">2. 週間スケジュール</h2>
+    ${bizSummary}
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">3. 週間スケジュール</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px; font-size:10.5px;">
       <tr><th style="${th}">氏名</th>${DAYS.map((d,i)=>`<th style="${th}">${d} ${fmtShort(dates[i])}</th>`).join("")}</tr>
       ${master.members.map(m=>`<tr><td style="${td} font-weight:700;">${esc(m)}</td>${DAYS.map((_,i)=>`<td style="${td} white-space:pre-wrap;">${esc((week.schedule[m]||[])[i]||"")}</td>`).join("")}</tr>`).join("")}
     </table>
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">3. 日報まとめ(業務内容・報告相談事項)</h2>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">4. 日報まとめ(業務内容・報告相談事項)</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
       <tr><th style="${th}">氏名</th><th style="${th}">日付</th><th style="${th}">業務内容</th><th style="${th}">報告・相談事項</th></tr>
       ${(()=>{
@@ -2119,14 +2213,14 @@ function renderReport(){
         return rows.map(r=>`<tr><td style="${td}">${esc(r.m)}</td><td style="${td}">${esc(r.date)}</td><td style="${td}">${esc(r.work||"")}</td><td style="${td} ${r.issue?"color:#9B2C2C;":""}">${esc(r.issue||"")}</td></tr>`).join("");
       })()}
     </table>
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">4. 主な案件</h2>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">5. 主な案件</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
       <tr><th style="${th}">担当</th><th style="${th}">分類</th><th style="${th}">案件名</th><th style="${th}">ステータス</th><th style="${th}">人日</th><th style="${th}">今週の予定</th></tr>
       ${activeCases.length===0? `<tr><td colspan="6" style="${td}">(今週の案件登録なし)</td></tr>` : activeCases.map(c=>`
         <tr><td style="${td}">${esc(c.owner)}</td><td style="${td}">${esc(c.category)}</td><td style="${td}">${esc(c.name)}</td>
         <td style="${td} text-align:center;">${esc(c.status)}</td><td style="${td} text-align:center;">${c.manday||0}</td><td style="${td}">${esc((c.weeklyPlans||[]).find(p=>p.weekKey===currentWeekKey())?.text||"")}</td></tr>`).join("")}
     </table>
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">5. 決定事項</h2>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">6. 決定事項</h2>
     <div style="border:1px solid #CCC; border-radius:4px; padding:8px 10px; min-height:40px; white-space:pre-wrap;">${esc(week.decisions||"(記載なし)")}</div>
   </div>`;
 }
@@ -2444,6 +2538,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
   $("btnCommentClose").addEventListener("click", ()=>$("commentModal").classList.remove("show"));
   $("btnCommentPost").addEventListener("click", postComment);
   $("meetingNote").addEventListener("change", ()=>{ week.meetingNote=$("meetingNote").value; queueSave("week"); });
+  $("btnPrepareMeeting").addEventListener("click", prepareMeeting);
+  $("btnMeetingArchive").addEventListener("click", showMeetingArchive);
   $("decisions").addEventListener("change", ()=>{ week.decisions=$("decisions").value; queueSave("week"); });
   boot();
 });
