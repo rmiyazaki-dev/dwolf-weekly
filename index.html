@@ -313,6 +313,20 @@
   </div>
 </div>
 
+<!-- 失注モーダル -->
+<div class="modal" id="lostModal">
+  <div class="modal-content" style="max-width:440px;">
+    <h3 class="modal-title" id="lostModalTitle"></h3>
+    <label style="font-size:12px; font-weight:700;">失注理由<select id="lostReasonSel" class="w100" style="margin-top:4px;"></select></label>
+    <label style="font-size:12px; font-weight:700; display:block; margin-top:10px;">補足(任意)<input type="text" id="lostReasonNote" class="w100" placeholder="例:予算が合わず○○社に" style="margin-top:4px;"></label>
+    <div style="font-size:11.5px; color:#6B7A87; margin-top:8px;">失注にすると案件はアーカイブされます(「完了済も表示」で確認可能。「戻す」で失注を取り消せます)。理由は成約率・失注分析に使われます。</div>
+    <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end;">
+      <button class="btn btn-secondary" id="btnLostCancel">キャンセル</button>
+      <button class="btn btn-primary" id="btnLostConfirm" style="background:#B54747;">失注として終了</button>
+    </div>
+  </div>
+</div>
+
 <!-- コメントモーダル -->
 <div class="modal" id="commentModal">
   <div class="modal-content">
@@ -770,13 +784,23 @@ function dueInfo(cs){
   if(diff<=3) return {level:"soon", label:diff===0?"納期本日":`納期まで${diff}日`, diff};
   return null;
 }
+/* 次回アクションの期日チェック(納期のdueInfoと同型) */
+function actionInfo(cs){
+  if(!cs.nextAction||!cs.nextActionDate||cs.archived) return null;
+  const today=new Date(); today.setHours(0,0,0,0);
+  const due=new Date(cs.nextActionDate+"T00:00:00");
+  const diff=Math.round((due-today)/86400000);
+  return {over:diff<0, today:diff===0, diff};
+}
 function renderDueAlerts(){
   const alerts=cases.map(c=>({c, d:dueInfo(c)})).filter(x=>x.d);
   const over=alerts.filter(x=>x.d.level==="over");
   const soon=alerts.filter(x=>x.d.level==="soon");
+  const actOver=cases.map(c=>({c, a:actionInfo(c)})).filter(x=>x.a&&(x.a.over||x.a.today));
   let html="";
   if(over.length) html+=`<div class="alert alert-error"><b>納期超過:</b>${over.map(x=>`${esc(x.c.name)}(${esc(x.c.owner)}・${esc(x.c.dueDate)})`).join("　/　")}</div>`;
   if(soon.length) html+=`<div class="alert alert-warning"><b>納期間近:</b>${soon.map(x=>`${esc(x.c.name)}(${esc(x.c.owner)}・${x.d.label})`).join("　/　")}</div>`;
+  if(actOver.length) html+=`<div class="alert alert-warning"><b>次回アクション期限:</b>${actOver.map(x=>`${esc(x.c.name)}「${esc(x.c.nextAction)}」(${esc(x.c.owner)}・${esc(x.c.nextActionDate)}${x.a.over?"・超過":"・本日"})`).join("　/　")}</div>`;
   $("dueAlerts").innerHTML=html;
 }
 /* ---------- Money Forward連携:要確認リスト ---------- */
@@ -1132,7 +1156,7 @@ function renderCases(){
   const sel=$("filterOwner");
   const cur=sel.value||"全員";
   sel.innerHTML=`<option>全員</option>`+master.members.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
-  const showArchived=$("showArchived").checked;
+  const showArchived=$("showArchived").checked || !!(dashboardCaseFilter&&dashboardCaseFilter.includeArchived);
   renderDueAlerts();
   renderMfReviewQueue();
   if(dashboardCaseFilter){
@@ -1153,13 +1177,17 @@ function renderCases(){
       const dueChip=cs.dueDate? `<span class="chip" style="${d? (d.level==="over"?"background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;":"background:#FFF8E6; border:1px solid #E5C56A; color:#7A5B00;") : "background:#F2F3F1; border:1px solid #DCE0E3; color:#3D4F5E;"}">納期 ${esc(cs.dueDate)}${d?`・${d.label}`:""}</span>` : "";
       const amounts=[cs.quoteAmount?`見積 ${fmtYen(cs.quoteAmount)}`:"", cs.orderAmount?`受注 ${fmtYen(cs.orderAmount)}`:"", cs.billingStatus&&cs.billingStatus!=="未請求"?esc(cs.billingStatus):"", cs.paymentDate?`入金予定 ${esc(cs.paymentDate)}`:""].filter(Boolean).join("　");
       const thisWeekPlan=(cs.weeklyPlans||[]).find(p=>p.weekKey===currentWeekKey())?.text || "";
+      const a=actionInfo(cs);
+      const actionChip=cs.nextAction? `<span class="chip" style="${a&&a.over?"background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;":"background:#EEF3FA; border:1px solid #BCD3E8; color:#2B6CB0;"}">次: ${esc(cs.nextAction)}${cs.nextActionDate?`(${esc(cs.nextActionDate)}${a&&a.over?"・期限超過":""})`:""}</span>`:"";
       return `
-      <div class="card" style="border-left:4px solid ${catColor(cs.category)}; opacity:${cs.archived?0.55:1};">
+      <div class="card" style="border-left:4px solid ${cs.lost?"#9B2C2C":catColor(cs.category)}; opacity:${cs.archived?0.55:1};">
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <span class="chip" style="background:${catColor(cs.category)}18; border:1px solid ${catColor(cs.category)}44; color:${catColor(cs.category)};">${esc(cs.category)}</span>
           <span style="font-size:14.5px; font-weight:800;">${esc(cs.name)}</span>
           <span class="chip" style="background:#17242F14; border:1px solid #17242F33;">${esc(cs.status)}</span>
+          ${cs.lost?`<span class="chip" style="background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;">失注${cs.lostReason?`:${esc(cs.lostReason)}`:""}</span>`:""}
           ${dueChip}
+          ${actionChip}
           <span style="margin-left:auto; font-size:12px; color:#3D4F5E;">${esc(cs.owner)}｜${cs.manday||0}人日</span>
         </div>
         ${cs.customerName? `<div style="margin-top:5px; font-size:12.5px; font-weight:700; color:#17242F;">顧客:${esc(cs.customerName)}${cs.execDate?`　<span style="font-weight:400; color:#3D4F5E;">実施日:${esc(cs.execDate)}</span>`:""}</div>`: (cs.execDate?`<div style="margin-top:5px; font-size:12.5px; color:#3D4F5E;">実施日:${esc(cs.execDate)}</div>`:"")}
@@ -1170,6 +1198,7 @@ function renderCases(){
           <button class="btn btn-secondary btn-small" data-case-cm="${cs.id}">コメント${commentCounts[cs.id]?`(${commentCounts[cs.id]})`:""}</button>
           <button class="btn btn-secondary btn-small" data-case-file="${cs.id}">ファイル${fileCounts[cs.id]?`(${fileCounts[cs.id]})`:""}</button>
           <button class="btn btn-secondary btn-small" data-case-his="${cs.id}">履歴</button>
+          ${!cs.archived && !(parseFloat(cs.orderAmount)>0)? `<button class="btn btn-secondary btn-small btn-danger" data-case-lost="${cs.id}">失注</button>`:""}
           <button class="btn btn-secondary btn-small btn-danger" data-case-ar="${cs.id}">${cs.archived?"戻す":"完了"}</button>
         </div>
       </div>`;}).join("");
@@ -1180,16 +1209,44 @@ function renderCases(){
   document.querySelectorAll("[data-case-ar]").forEach(b=>b.addEventListener("click",async ()=>{
     const c=cases.find(x=>x.id==+b.dataset.caseAr); if(!c) return;
     c.archived=!c.archived; c.updatedAt=Date.now();
+    let action=c.archived?"完了":"再開";
+    if(!c.archived && c.lost){ c.lost=false; c.lostReason=""; c.lostAt=""; action="再開(失注取消)"; }
     await saveCaseRow(c);
     await logAction(c.archived?"案件完了":"案件再開", c.name);
-    await logCaseHistory(c.id, c.archived?"完了":"再開", "");
+    await logCaseHistory(c.id, action, "");
     renderCases(); setStatus("保存しました");
   }));
+  document.querySelectorAll("[data-case-lost]").forEach(b=>b.addEventListener("click",()=>openLostModal(+b.dataset.caseLost)));
+}
+/* ---------- 失注処理 ---------- */
+const LOST_REASONS=["価格","時期・延期","他社に決定","自然消滅","その他"];
+let lostCaseId=null;
+function openLostModal(caseId){
+  const c=cases.find(x=>x.id===caseId); if(!c) return;
+  lostCaseId=caseId;
+  $("lostModalTitle").textContent=`失注として終了:${c.name}`;
+  $("lostReasonSel").innerHTML=LOST_REASONS.map(r=>`<option>${esc(r)}</option>`).join("");
+  $("lostReasonNote").value="";
+  $("lostModal").classList.add("show");
+}
+async function confirmLost(){
+  const c=cases.find(x=>x.id===lostCaseId); if(!c) return;
+  const reason=$("lostReasonSel").value;
+  const note=$("lostReasonNote").value.trim();
+  c.lost=true;
+  c.lostReason=note? `${reason}(${note})` : reason;
+  c.lostAt=todayStr();
+  c.archived=true; c.updatedAt=Date.now();
+  await saveCaseRow(c);
+  await logCaseHistory(c.id, "失注", c.lostReason);
+  await logAction("案件失注", `${c.name}:${c.lostReason}`);
+  $("lostModal").classList.remove("show");
+  renderCases(); setStatus("失注として記録しました");
 }
 function openCase(id, prefill){
   editingCase = id==null
     ? {id:null, owner:me, salesOwner:"", flightOwner:"", category:master.categories[0], name:"", status:master.statuses[0], manday:"", weeklyPlans:[], note:"", archived:false,
-       customerId:"", customerName:"", quoteAmount:"", orderAmount:"", billingStatus:BILLING_STATUSES[0], execDate:"", dueDate:"", paymentDate:"", ...(prefill||{})}
+       customerId:"", customerName:"", quoteAmount:"", orderAmount:"", billingStatus:BILLING_STATUSES[0], execDate:"", dueDate:"", paymentDate:"", nextAction:"", nextActionDate:"", ...(prefill||{})}
     : structuredClone(cases.find(x=>x.id===id));
   $("caseModalTitle").textContent=editingCase.id? "案件を編集" : "案件を追加";
   const opt=(arr,cur)=>arr.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("");
@@ -1224,6 +1281,10 @@ function openCase(id, prefill){
     <div class="modal-cols">
       <label style="font-size:12px; font-weight:700;">請求状況<select id="cfBilling" class="w100" style="margin-top:4px;">${opt(BILLING_STATUSES, editingCase.billingStatus||BILLING_STATUSES[0])}</select></label>
       <label style="font-size:12px; font-weight:700;">入金予定日<input type="date" id="cfPayDate" class="w100" value="${esc(editingCase.paymentDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7A87; font-size:11px;">売上予測の計上月になります</span></label>
+    </div>
+    <div class="modal-cols">
+      <label style="font-size:12px; font-weight:700;">次回アクション<input type="text" id="cfNextAction" class="w100" value="${esc(editingCase.nextAction||"")}" placeholder="例:見積の返事を確認する" style="margin-top:4px;"></label>
+      <label style="font-size:12px; font-weight:700;">アクション期日<input type="date" id="cfNextActionDate" class="w100" value="${esc(editingCase.nextActionDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7A87; font-size:11px;">期日を過ぎると案件管理にアラート表示</span></label>
     </div>
     ${(()=>{
       const curKey=currentWeekKey();
@@ -1274,6 +1335,8 @@ async function saveCase(){
   editingCase.orderAmount=$("cfOrder").value;
   editingCase.billingStatus=$("cfBilling").value;
   editingCase.paymentDate=$("cfPayDate").value;
+  editingCase.nextAction=$("cfNextAction").value.trim();
+  editingCase.nextActionDate=$("cfNextActionDate").value;
   const custSel=$("cfCustomer").value;
   if(custSel){
     editingCase.customerId=custSel;
@@ -1654,6 +1717,36 @@ function renderDashboard(){
   const custRanking=[...custGroups.values()].sort((a,b)=>b.amount-a.amount).slice(0,10);
   const custRankMax=Math.max(1,...custRanking.map(r=>r.amount));
 
+  /* 受注前パイプライン(成約率・失注分析)。全期間ベース */
+  const wonCases=cases.filter(c=>num(c.orderAmount)>0);
+  const lostCases=cases.filter(c=>c.lost);
+  const pipelineCases=cases.filter(c=>!c.archived && !c.lost && num(c.orderAmount)===0 && num(c.quoteAmount)>0);
+  const closedTotal=wonCases.length+lostCases.length;
+  const winRate=closedTotal? Math.round(wonCases.length/closedTotal*100) : null;
+  const lostReasonRows=(()=>{
+    const g={};
+    lostCases.forEach(c=>{ const r=(c.lostReason||"理由未記録").split("(")[0]; g[r]=g[r]||{count:0, amount:0}; g[r].count++; g[r].amount+=num(c.quoteAmount); });
+    return Object.entries(g).map(([label,v])=>({label,...v})).sort((a,b)=>b.count-a.count);
+  })();
+  const lostReasonMax=Math.max(1,...lostReasonRows.map(r=>r.count));
+  const pipelineCard=`
+    <div class="card">
+      <h3 style="font-weight:800; margin-bottom:10px;">受注前パイプライン(成約率・失注分析)</h3>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+        ${kpi("成約率", winRate==null?"―":`${winRate}%`, `受注${wonCases.length}件/失注${lostCases.length}件`)}
+        ${kpi("商談中(見積提出済み)", `${pipelineCases.length}件`, fmtYen(sum(pipelineCases,c=>num(c.quoteAmount)))||"¥0")}
+        ${kpi("失注額(見積ベース累計)", fmtYen(sum(lostCases,c=>num(c.quoteAmount)))||"¥0", `${lostCases.length}件`)}
+      </div>
+      ${lostReasonRows.length? `
+      <div style="font-size:12px; font-weight:700; margin-bottom:6px;">失注理由の内訳</div>
+      ${lostReasonRows.map(r=>`
+        <div data-dash-lost="${esc(r.label)}" style="display:flex; align-items:center; gap:10px; margin-bottom:6px; cursor:pointer;">
+          <span style="width:110px; font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px;">${esc(r.label)}</span>
+          <div style="flex:1; background:#F2F3F1; border-radius:4px; height:16px;"><div style="width:${Math.round(r.count/lostReasonMax*100)}%; min-width:3px; background:#B54747; height:100%; border-radius:4px;"></div></div>
+          <span style="width:150px; font-size:12px; text-align:right; white-space:nowrap;">${r.count}件${r.amount?`｜${fmtYen(r.amount)}`:""}</span>
+        </div>`).join("")}` : `<div style="color:#6B7A87; font-size:12px;">失注の記録はまだありません(案件管理の「失注」ボタンで記録すると、ここに成約率と理由の内訳が表示されます)。</div>`}
+    </div>`;
+
   $("dashboardPanel").innerHTML=`
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
       ${kpi("進行中案件", `${active.length}件`, "")}
@@ -1665,6 +1758,7 @@ function renderDashboard(){
       ${kpi("今月実施", `${monthExec.length}件`, thisMonth)}
     </div>
     ${fyPanel}
+    ${pipelineCard}
     ${barTable("分類別(進行中)", byCat, "category")}
     ${barTable("担当別(進行中)", byOwner, "owner")}
     ${barTable("営業担当別 受注額(進行中)", bySalesOwner, "salesOwner")}
@@ -1726,6 +1820,15 @@ function renderDashboard(){
     dashboardCaseFilter={
       label:`顧客:${label}`,
       predicate:(c)=> custGroupKey(c)===key,
+    };
+    switchTab("cases");
+  }));
+  document.querySelectorAll("[data-dash-lost]").forEach(el=>el.addEventListener("click", ()=>{
+    const reason=el.dataset.dashLost;
+    dashboardCaseFilter={
+      label:`失注:${reason}`,
+      includeArchived:true,
+      predicate:(c)=> c.lost && String(c.lostReason||"理由未記録").split("(")[0]===reason,
     };
     switchTab("cases");
   }));
@@ -2524,6 +2627,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
   $("btnAddCase").addEventListener("click", async ()=>{ await loadCustomers(); openCase(null); });
   $("btnCaseCancel").addEventListener("click", ()=>{ pendingMfLink=null; $("caseModal").classList.remove("show"); });
   $("btnCaseSave").addEventListener("click", saveCase);
+  $("btnLostCancel").addEventListener("click", ()=>$("lostModal").classList.remove("show"));
+  $("btnLostConfirm").addEventListener("click", confirmLost);
   $("btnFileClose").addEventListener("click", ()=>$("fileModal").classList.remove("show"));
   $("btnFileSelect").addEventListener("click", ()=>$("fileUploadInput").click());
   $("fileUploadInput").addEventListener("change", (e)=>{ uploadFiles(e.target.files); e.target.value=""; });
