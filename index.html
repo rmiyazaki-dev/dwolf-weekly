@@ -248,7 +248,7 @@
         </div>
       </div>
       <div class="alert alert-info" id="teamsImportMsg" style="display:none;"></div>
-      <div class="alert alert-info" style="font-size:12px;">各日報の「会議資料に反映」を押すと、その人の今週(月〜金)分の業務内容・報告相談事項を自動集計し、会議モードと社長報告に反映します。</div>
+      <div class="alert alert-info" style="font-size:12px;">各日報の「会議資料に反映」を押すと、その人の先週(月〜金)分の業務内容・報告相談事項を自動集計し、会議モードと社長報告に反映します(月曜の会議で先週分を振り返る想定)。</div>
       <div id="nippoList"></div>
     </div>
 
@@ -2055,7 +2055,10 @@ function parseNippoFields(content){
 }
 async function reflectNippoToMeeting(author){
   await loadWeek();
-  const s=toISODate(monday); const eDate=new Date(monday); eDate.setDate(eDate.getDate()+4); const e=toISODate(eDate);
+  /* 会議は月曜開催のため、集計対象は「先週(前の月〜金)」の日報とする */
+  const sDate=new Date(monday); sDate.setDate(sDate.getDate()-7);
+  const eDate=new Date(monday); eDate.setDate(eDate.getDate()-3);
+  const s=toISODate(sDate), e=toISODate(eDate);
   const {data}=await sb.from("nippo").select("*").eq("author",author).gte("report_date",s).lte("report_date",e).order("report_date",{ascending:true});
   const source=(data||[]).map(n=>{ const f=parseNippoFields(n.content); return {date:n.report_date, work:f.work, issue:f.issue}; }).filter(x=>x.work||x.issue);
   week.nippoSummary=week.nippoSummary||{};
@@ -2065,7 +2068,7 @@ async function reflectNippoToMeeting(author){
   const merged=[...existing, ...added].sort((a,b)=>a.date.localeCompare(b.date));
   week.nippoSummary[author]=merged;
   await saveWeekNow();
-  await logAction("会議資料に反映", `${author}:新規${added.length}件(${fmtShort(monday)}週)`);
+  await logAction("会議資料に反映", `${author}:新規${added.length}件(先週${fmtShort(sDate)}週分)`);
   return added.length;
 }
 async function renderNippoList(){
@@ -2085,7 +2088,7 @@ async function renderNippoList(){
   document.querySelectorAll("[data-nippo-reflect]").forEach(b=>b.addEventListener("click", async ()=>{
     b.disabled=true; b.textContent="反映中…";
     const cnt=await reflectNippoToMeeting(b.dataset.nippoReflect);
-    showImportMsg(`${b.dataset.nippoReflect}さんの今週分(${fmtShort(monday)}週)を会議資料・社長報告に反映しました(新規${cnt}件。会議モードの内容は編集可能です)。`);
+    showImportMsg(`${b.dataset.nippoReflect}さんの先週分(月〜金)を会議資料・社長報告に反映しました(新規${cnt}件。会議モードの内容は編集可能です)。`);
     b.disabled=false; b.textContent="会議資料に反映";
   }));
 }
@@ -2195,22 +2198,28 @@ function renderMeeting(){
       </div>`:""}
       ${items.length? `
       <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
-        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">日報より:今週の実施内容(自動集計・編集可)</div>
+        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">日報より:先週の実施内容(自動集計・編集可)</div>
         ${items.map((it,idx)=>`
           <div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px dashed #EEE;">
             <div style="display:flex; align-items:center; gap:8px;">
               <strong style="font-size:12px;">${esc(it.date)}</strong>
-              <button class="btn btn-small btn-secondary btn-danger" style="margin-left:auto;" data-ns-del="${esc(m)}|${idx}">削除</button>
+              <button class="btn btn-small btn-secondary btn-danger" style="margin-left:auto;" data-ns-del="${esc(m)}|${idx}">行ごと削除</button>
             </div>
-            <label style="font-size:11px; color:#6B7A87; display:block; margin-top:3px;">業務内容</label>
+            <div style="display:flex; align-items:center; gap:6px; margin-top:3px;">
+              <label style="font-size:11px; color:#6B7A87;">業務内容</label>
+              ${it.work?`<button class="btn btn-small btn-secondary btn-danger" style="padding:0 6px; font-size:10.5px;" data-ns-workdel="${esc(m)}|${idx}">この項目を削除</button>`:""}
+            </div>
             <textarea rows="1" data-ns-work="${esc(m)}|${idx}" style="margin-top:2px; font-size:12.5px;">${esc(it.work||"")}</textarea>
-            <label style="font-size:11px; color:#6B7A87; display:block; margin-top:3px;">相談・報告事項</label>
+            <div style="display:flex; align-items:center; gap:6px; margin-top:3px;">
+              <label style="font-size:11px; color:#6B7A87;">相談・報告事項</label>
+              ${it.issue?`<button class="btn btn-small btn-secondary btn-danger" style="padding:0 6px; font-size:10.5px;" data-ns-issuedel="${esc(m)}|${idx}">この項目を削除</button>`:""}
+            </div>
             <textarea rows="2" data-ns-issue="${esc(m)}|${idx}" style="margin-top:2px; font-size:12.5px; ${it.issue?"background:#FFF8F5;":""}">${esc(it.issue||"")}</textarea>
           </div>`).join("")}
         <button class="btn btn-small btn-secondary" data-ns-add="${esc(m)}">＋ 行を追加</button>
       </div>`:`
       <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
-        <button class="btn btn-small btn-secondary" data-ns-add="${esc(m)}">＋ 日報より:今週の実施内容を手入力で追加</button>
+        <button class="btn btn-small btn-secondary" data-ns-add="${esc(m)}">＋ 日報より:先週の実施内容を手入力で追加</button>
       </div>`}
     </div>`;
   }).join("");
@@ -2227,9 +2236,26 @@ function renderMeeting(){
   }));
   document.querySelectorAll("[data-ns-del]").forEach(b=>b.addEventListener("click",()=>{
     const [m,idx]=b.dataset.nsDel.split("|");
-    if(!confirm("この行を削除しますか?")) return;
+    if(!confirm("この行(業務内容・相談報告の両方)を削除しますか?")) return;
     week.nippoSummary[m].splice(+idx,1);
     queueSave("week"); renderMeeting();
+  }));
+  /* 業務内容・相談報告を個別に削除(両方空になったら行ごと削除) */
+  const clearNsField=(m,idx,field)=>{
+    const it=week.nippoSummary[m][+idx]; if(!it) return;
+    it[field]="";
+    if(!it.work && !it.issue) week.nippoSummary[m].splice(+idx,1);
+    queueSave("week"); renderMeeting();
+  };
+  document.querySelectorAll("[data-ns-workdel]").forEach(b=>b.addEventListener("click",()=>{
+    const [m,idx]=b.dataset.nsWorkdel.split("|");
+    if(!confirm("この業務内容を削除しますか?")) return;
+    clearNsField(m,idx,"work");
+  }));
+  document.querySelectorAll("[data-ns-issuedel]").forEach(b=>b.addEventListener("click",()=>{
+    const [m,idx]=b.dataset.nsIssuedel.split("|");
+    if(!confirm("この相談・報告事項を削除しますか?")) return;
+    clearNsField(m,idx,"issue");
   }));
   document.querySelectorAll("[data-ns-add]").forEach(b=>b.addEventListener("click",()=>{
     const m=b.dataset.nsAdd;
@@ -2245,7 +2271,17 @@ function renderMeeting(){
 /* ---------- 社長報告 ---------- */
 function renderReport(){
   const dates=weekDates(monday);
-  const activeCases=cases.filter(c=>!c.archived);
+  /* 主な案件の並び順: ①今週動きがあった案件を先頭(updatedAtが表示週の月曜以降)
+     ②進捗ステータスが進んでいる順(マスターの並びで後ろ=数字が大きい方が上) ③更新が新しい順 */
+  const weekStartMs=monday.getTime();
+  const stIdx=(c)=>master.statuses.indexOf(c.status);
+  const activeCases=cases.filter(c=>!c.archived).sort((a,b)=>{
+    const aw=(a.updatedAt||0)>=weekStartMs?1:0, bw=(b.updatedAt||0)>=weekStartMs?1:0;
+    if(aw!==bw) return bw-aw;
+    const sd=stIdx(b)-stIdx(a);
+    if(sd) return sd;
+    return (b.updatedAt||0)-(a.updatedAt||0);
+  });
   const th=`border:1px solid #BBB; background:#EEF1F3; padding:4px 6px; font-size:10.5px;`;
   const td=`border:1px solid #CCC; padding:4px 6px;`;
   /* 経営数値サマリー(ダッシュボードと同じ計算式) */
@@ -2306,7 +2342,7 @@ function renderReport(){
       <tr><th style="${th}">氏名</th>${DAYS.map((d,i)=>`<th style="${th}">${d} ${fmtShort(dates[i])}</th>`).join("")}</tr>
       ${master.members.map(m=>`<tr><td style="${td} font-weight:700;">${esc(m)}</td>${DAYS.map((_,i)=>`<td style="${td} white-space:pre-wrap;">${esc((week.schedule[m]||[])[i]||"")}</td>`).join("")}</tr>`).join("")}
     </table>
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">4. 日報まとめ(業務内容・報告相談事項)</h2>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">4. 日報まとめ(先週の業務内容・報告相談事項)</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
       <tr><th style="${th}">氏名</th><th style="${th}">日付</th><th style="${th}">業務内容</th><th style="${th}">報告・相談事項</th></tr>
       ${(()=>{
@@ -2316,7 +2352,7 @@ function renderReport(){
         return rows.map(r=>`<tr><td style="${td}">${esc(r.m)}</td><td style="${td}">${esc(r.date)}</td><td style="${td}">${esc(r.work||"")}</td><td style="${td} ${r.issue?"color:#9B2C2C;":""}">${esc(r.issue||"")}</td></tr>`).join("");
       })()}
     </table>
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">5. 主な案件</h2>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">5. 主な案件(今週動きがあった案件・進捗が進んでいる案件から順に表示)</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
       <tr><th style="${th}">担当</th><th style="${th}">分類</th><th style="${th}">案件名</th><th style="${th}">ステータス</th><th style="${th}">人日</th><th style="${th}">今週の予定</th></tr>
       ${activeCases.length===0? `<tr><td colspan="6" style="${td}">(今週の案件登録なし)</td></tr>` : activeCases.map(c=>`
