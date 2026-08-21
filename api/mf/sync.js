@@ -220,6 +220,8 @@ module.exports = async function handler(req, res) {
           quoteAmount: String(q.amount),
           ...customerPatchFor(target, q.partnerId, partnersById),
         };
+        /* 案件の「見積日」はMFの見積作成日を正とする */
+        if (q.issueDate) quotePatch.quoteDate = q.issueDate;
         /* 請求書が既に紐付いている(=請求書提出まで進んでいる)案件には、見積の紐付けで
            ステータスを「見積提出」に巻き戻さない(請求書が先に登録されたケースを想定) */
         if (!target.mfBillingId) quotePatch.status = "見積提出";
