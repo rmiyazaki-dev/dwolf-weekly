@@ -175,6 +175,9 @@
           <input type="file" id="icsFile" accept=".ics,text/calendar" style="display:none">
           <button class="btn btn-secondary btn-small" id="btnIcs">ICSファイル取込(手動)</button>
           <button class="btn btn-secondary btn-small btn-danger" id="btnCalendarReset" title="取込対象の選択を消してサインアウトし、別のアカウントで入れ直す">連携リセット</button>
+          <label style="font-size:11.5px; display:flex; align-items:center; gap:4px; white-space:nowrap;" title="毎朝6時以降にアプリを最初に開いたとき、その日まだ取り込んでいなければ自動で取り込みます">
+            <input type="checkbox" id="calAutoToggle"> 毎日自動取込
+          </label>
         </div>
       </div>
       <div style="overflow-x:auto;"><table class="grid" id="scheduleTable"></table></div>
@@ -354,6 +357,25 @@
 </div>
 
 <!-- 失注モーダル -->
+<!-- TODOの編集 -->
+<div class="modal" id="todoModal">
+  <div class="modal-content" style="max-width:460px;">
+    <h3 class="modal-title">TODOを編集</h3>
+    <label style="font-size:12px; font-weight:700;">内容<input type="text" id="tfText" class="w100" style="margin-top:4px;"></label>
+    <div class="modal-cols" style="margin-top:8px;">
+      <label style="font-size:12px; font-weight:700;">担当<select id="tfAssignee" class="w100" style="margin-top:4px;"></select></label>
+      <label style="font-size:12px; font-weight:700;">期限<input type="date" id="tfDue" class="w100" style="margin-top:4px;"></label>
+    </div>
+    <label style="font-size:12px; font-weight:700; display:block; margin-top:8px;">案件(任意)<select id="tfCase" class="w100" style="margin-top:4px;"></select></label>
+    <label style="font-size:12px; font-weight:700; display:flex; align-items:center; gap:6px; margin-top:10px;"><input type="checkbox" id="tfDone"> 完了にする</label>
+    <div style="display:flex; gap:8px; margin-top:14px;">
+      <button class="btn btn-secondary btn-danger btn-small" id="btnTodoDelete">削除</button>
+      <button class="btn btn-secondary" id="btnTodoCancel" style="margin-left:auto;">キャンセル</button>
+      <button class="btn btn-primary" id="btnTodoSave">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- 取込対象カレンダーの選択 -->
 <div class="modal" id="calPickModal">
   <div class="modal-content" style="max-width:480px;">
@@ -507,6 +529,26 @@ async function saveWeekByKey(key, w){
   const {error}=await sb.from("weeks").upsert({week_key:key, data:w, updated_at:new Date().toISOString()});
   return !error;
 }
+/* 週データのうち「自分の分」だけを安全に書き換える。
+   週レコードは全員分が1つのJSONBに入っているため、読み込んだ内容をそのまま
+   書き戻すと、その間に他メンバーが編集した分を消してしまう。
+   保存直前に最新を読み直し、自分のスロットだけを差し替えることで巻き込みを防ぐ。 */
+async function updateWeekMine(key, mutate){
+  const isCur = key===fmtKey(monday);
+  const w = isCur ? week : await loadWeekByKey(key);
+  if(!Array.isArray(w.schedule[me])) w.schedule[me]=["","","","",""];
+  w.calImported=w.calImported||{};
+  w.calImported[me]=w.calImported[me]||[];
+  const result=mutate(w) || {changed:false};
+  if(!result.changed) return result;
+  const latest=await loadWeekByKey(key);
+  latest.schedule[me]=w.schedule[me];
+  latest.calImported=latest.calImported||{};
+  latest.calImported[me]=w.calImported[me];
+  if(!await saveWeekByKey(key, latest)) throw new Error(`${key}週の保存に失敗しました。`);
+  if(isCur){ week.schedule=latest.schedule; week.calImported=latest.calImported; }
+  return result;
+}
 async function loadCases(){
   const {data}=await sb.from("cases").select("id,data").order("id",{ascending:false});
   cases=(data||[]).map(r=>({ id:r.id, ...r.data }));
@@ -652,6 +694,8 @@ async function enterApp(){
   switchTab("board");
   refreshFeedBadge();
   refreshTodoBadge();
+  /* 6時以降の初回起動なら裏で自動取込。失敗しても通常操作は妨げない */
+  maybeAutoImportCalendar().catch(e=>console.error("自動取込", e));
 }
 function logout(){
   sessionStorage.removeItem("dwolf_user");
@@ -701,6 +745,7 @@ function renderBoard(){
       queueSave("week");
     });
   });
+  $("calAutoToggle").checked=calAutoOn();
   renderBoardAnnouncements();
 }
 /* 週間ボードの連絡事項。チェックを入れると既読になり、この欄からは消える
@@ -792,29 +837,88 @@ function renderTodos(){
             ${cname? `<span data-todo-case="${t.case_id}" style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;">案件:${esc(cname)}</span>`:""}
           </div>
         </div>
+        <button class="btn btn-small btn-secondary" data-todo-e="${t.id}">編集</button>
         <button class="btn btn-small btn-secondary btn-danger" data-todo-d="${t.id}">削除</button>
       </div>`;
     }).join("")}</div>`;
-  document.querySelectorAll("[data-todo-t]").forEach(c=>c.addEventListener("change", async ()=>{
-    const t=todos.find(x=>x.id==+c.dataset.todoT); if(!t) return;
-    const done=c.checked;
-    await sb.from("todos").update({done, done_at:done?new Date().toISOString():null, updated_at:new Date().toISOString()}).eq("id",t.id);
-    t.done=done;
-    await logAction(done?"TODO完了":"TODO再開", `${t.text}(${t.assignee||"担当未設定"})`);
-    await loadTodos(); renderTodos(); refreshTodoBadge();
-  }));
-  document.querySelectorAll("[data-todo-d]").forEach(b=>b.addEventListener("click", async ()=>{
-    const t=todos.find(x=>x.id==+b.dataset.todoD); if(!t) return;
-    if(!confirm(`このTODOを削除しますか?\n「${t.text}」`)) return;
-    await sb.from("todos").delete().eq("id",t.id);
-    await logAction("TODO削除", `${t.text}(${t.assignee||"担当未設定"})`);
-    await loadTodos(); renderTodos(); refreshTodoBadge();
+  document.querySelectorAll("[data-todo-t]").forEach(c=>c.addEventListener("change", ()=>toggleTodoDone(+c.dataset.todoT, c.checked)));
+  document.querySelectorAll("[data-todo-e]").forEach(b=>b.addEventListener("click", ()=>openTodoEdit(b.dataset.todoE)));
+  document.querySelectorAll("[data-todo-d]").forEach(b=>b.addEventListener("click", ()=>{
+    const t=todos.find(x=>x.id==+b.dataset.todoD); if(t) deleteTodoById(t.id, t.text);
   }));
   document.querySelectorAll("[data-todo-case]").forEach(el=>el.addEventListener("click", ()=>{
     const cid=el.dataset.todoCase;
     dashboardCaseFilter={label:`TODOの案件`, includeArchived:true, predicate:(c)=>String(c.id)===String(cid)};
     switchTab("cases");
   }));
+}
+/* ---------- TODOの編集(TODOタブ・会議モードの両方から開ける) ---------- */
+let editingTodoId=null;
+function openTodoEdit(id){
+  const t=todos.find(x=>x.id===+id); if(!t) return;
+  editingTodoId=t.id;
+  $("tfText").value=t.text||"";
+  $("tfAssignee").innerHTML=`<option value="">(担当未設定)</option>`
+    +master.members.map(m=>`<option ${m===t.assignee?"selected":""}>${esc(m)}</option>`).join("");
+  $("tfDue").value=t.due_date||"";
+  $("tfCase").innerHTML=`<option value="">(案件と紐付けない)</option>`
+    +cases.filter(c=>!c.archived||String(c.id)===String(t.case_id))
+      .map(c=>`<option value="${c.id}" ${String(c.id)===String(t.case_id)?"selected":""}>${esc(c.name)}${c.customerName?`(${esc(c.customerName)})`:""}</option>`).join("");
+  $("tfDone").checked=!!t.done;
+  $("todoModal").classList.add("show");
+}
+/* 変更後、開いているタブに合わせて描画し直す */
+async function refreshAfterTodoChange(){
+  await loadTodos();
+  refreshTodoBadge();
+  if(currentTab==="meeting") renderMeeting();
+  else if(currentTab==="todos") renderTodos();
+}
+async function saveTodoEdit(){
+  const t=todos.find(x=>x.id===editingTodoId); if(!t) return;
+  const text=$("tfText").value.trim();
+  if(!text){ alert("内容を入力してください。"); return; }
+  const done=$("tfDone").checked;
+  const patch={
+    text,
+    assignee:$("tfAssignee").value||null,
+    due_date:$("tfDue").value||null,
+    case_id:$("tfCase").value? +$("tfCase").value : null,
+    done,
+    done_at: done? (t.done_at||new Date().toISOString()) : null,
+    updated_at:new Date().toISOString(),
+  };
+  const {error}=await sb.from("todos").update(patch).eq("id",t.id);
+  if(error){ alert("保存に失敗しました:"+error.message); return; }
+  await logAction("TODO更新", `${text}(${patch.assignee||"担当未設定"})`);
+  $("todoModal").classList.remove("show");
+  editingTodoId=null;
+  await refreshAfterTodoChange();
+  setStatus("保存しました");
+}
+async function deleteTodoById(id, label){
+  if(!confirm(`このTODOを削除しますか?\n「${label}」`)) return false;
+  await sb.from("todos").delete().eq("id",id);
+  await logAction("TODO削除", label);
+  await refreshAfterTodoChange();
+  setStatus("削除しました");
+  return true;
+}
+async function toggleTodoDone(id, done){
+  await sb.from("todos").update({done, done_at:done?new Date().toISOString():null, updated_at:new Date().toISOString()}).eq("id",id);
+  const t=todos.find(x=>x.id===+id);
+  await logAction(done?"TODO完了":"TODO再開", `${t?t.text:""}(${t&&t.assignee||"担当未設定"})`);
+  await refreshAfterTodoChange();
+}
+/* 会議モードから、その人を担当にしてTODOを追加する */
+async function addTodoForMember(member, text){
+  const row={text:text.trim(), assignee:member||null, due_date:null, case_id:null, done:false, created_by:me};
+  if(!row.text) return;
+  const {error}=await sb.from("todos").insert(row);
+  if(error){ alert("TODOの追加に失敗しました。setup-todos.sql が実行済みか確認してください。"); return; }
+  await logAction("TODO追加", `${row.text}(${row.assignee||"担当未設定"})`);
+  await refreshAfterTodoChange();
+  setStatus("追加しました");
 }
 async function addTodo(){
   const text=$("todoInput").value.trim();
@@ -887,26 +991,20 @@ async function applyCalendarEvents(items){
     if(!byWeek.has(key)) byWeek.set(key,[]);
     byWeek.get(key).push({dayIdx, label:it.label});
   });
-  const curKey=fmtKey(monday);
   let count=0, weeksTouched=0;
   for(const [key, list] of [...byWeek.entries()].sort()){
-    const w = key===curKey ? week : await loadWeekByKey(key);
-    if(!Array.isArray(w.schedule[me])) w.schedule[me]=["","","","",""];
-    w.calImported=w.calImported||{};
-    w.calImported[me]=w.calImported[me]||[];
-    let changed=false;
-    list.forEach(({dayIdx,label})=>{
-      const cell=w.schedule[me][dayIdx]||"";
-      if(cell.split("\n").includes(label)) return; /* 同じ予定の二重取込を防ぐ */
-      w.schedule[me][dayIdx]=cell? cell+"\n"+label : label;
-      if(!w.calImported[me].includes(label)) w.calImported[me].push(label);
-      changed=true; count++;
+    const res=await updateWeekMine(key, (w)=>{
+      let added=0;
+      list.forEach(({dayIdx,label})=>{
+        const cell=w.schedule[me][dayIdx]||"";
+        if(cell.split("\n").includes(label)) return; /* 同じ予定の二重取込を防ぐ */
+        w.schedule[me][dayIdx]=cell? cell+"\n"+label : label;
+        if(!w.calImported[me].includes(label)) w.calImported[me].push(label);
+        added++;
+      });
+      return {changed:added>0, added};
     });
-    if(changed){
-      weeksTouched++;
-      const ok = key===curKey ? await saveWeekNow() : await saveWeekByKey(key,w);
-      if(!ok) throw new Error(`${key}週の保存に失敗しました。`);
-    }
+    if(res.changed){ weeksTouched++; count+=res.added; }
   }
   renderBoard();
   return {count, weeksTouched};
@@ -943,6 +1041,85 @@ async function fetchCalendarList(provider){
   const j=await graphGet("https://graph.microsoft.com/v1.0/me/calendars?$top=100");
   return (j.value||[]).map(c=>({id:c.id, name:c.name||c.id, primary:!!c.isDefaultCalendar}));
 }
+/* ---------- 毎日の自動取込 ----------
+   ブラウザアプリなので誰も開いていない時刻には動けない。そのため
+   「6時以降に最初にアプリを開いたとき、その日まだ取り込んでいなければ
+   自動で取り込む」方式にしている(1日1回・裏側で実行)。 */
+const CAL_AUTO_HOUR=6;
+function calAutoOn(){ return !!((settings.calAuto||{})[me]); }
+async function setCalAutoOn(on){
+  settings.calAuto=settings.calAuto||{};
+  settings.calAuto[me]=on;
+  await kvSet("settings", settings);
+}
+/* 画面を出さずにトークンを取る。取れなければ false(自動取込はあきらめる) */
+function googleLoginSilent(){
+  return new Promise((resolve)=>{
+    if(!ensureGsi()||!settings.googleClientId){ resolve(false); return; }
+    let done=false;
+    const finish=(v)=>{ if(!done){ done=true; resolve(v); } };
+    try{
+      const client=google.accounts.oauth2.initTokenClient({
+        client_id: settings.googleClientId,
+        scope: "https://www.googleapis.com/auth/calendar.readonly",
+        callback: (resp)=>{ if(resp&&resp.access_token){ googleToken=resp.access_token; finish(true); } else finish(false); },
+        error_callback: ()=>finish(false),
+      });
+      client.requestAccessToken({prompt:""});
+    }catch(e){ finish(false); }
+    /* ポップアップがブロックされた場合はcallbackが来ないので打ち切る */
+    setTimeout(()=>finish(false), 8000);
+  });
+}
+async function graphLoginSilent(){
+  try{
+    if(!teamsCfgOk()) return false;
+    const app=getMsal();
+    const acct=app.getAllAccounts()[0];
+    if(!acct) return false;
+    const r=await app.acquireTokenSilent({scopes:[...GRAPH_SCOPES,"Calendars.Read"], account:acct});
+    graphToken=r.accessToken;
+    return !!graphToken;
+  }catch(e){ return false; }
+}
+async function maybeAutoImportCalendar(){
+  if(!calAutoOn()) return;
+  const now=new Date();
+  if(now.getHours()<CAL_AUTO_HOUR) return;
+  const today=toISODate(now);
+  if(((settings.calAutoLast||{})[me])===today) return;
+  const providers=["outlook","google"].filter(p=>calSelected(p).length);
+  if(!providers.length) return;
+  let total=0, ranAny=false;
+  for(const p of providers){
+    try{
+      const ok = p==="google"? await googleLoginSilent() : await graphLoginSilent();
+      if(!ok) continue;
+      ranAny=true;
+      const r=await autoImportSilently(p);
+      total+=r;
+    }catch(e){ console.error("自動取込に失敗", p, e); }
+  }
+  /* 認証すら通らなかった日は記録せず、次に開いた時にもう一度試す */
+  if(!ranAny) return;
+  settings.calAutoLast=settings.calAutoLast||{};
+  settings.calAutoLast[me]=today;
+  await kvSet("settings", settings);
+  if(total>0){
+    setStatus(`カレンダーを自動取込しました(${total}件)`);
+    await logAction("カレンダー自動取込", `${total}件(${providers.join("・")})`);
+  }
+}
+/* 自動取込はダイアログを出さずに実行する(取込処理はボタン操作と同じ) */
+async function autoImportSilently(provider){
+  const calIds=calSelected(provider);
+  const items = provider==="google"
+    ? await fetchGoogleEvents(calIds)
+    : await fetchOutlookEvents(calIds);
+  const res=await applyCalendarEvents(items);
+  return res.count;
+}
+
 /* ---------- カレンダー連携のリセット(別アカウントで入れ直す) ----------
    取り込んだ予定は calImported に記録しているので、手入力した予定を残したまま
    取込分だけを取り消せる。記録が無い(v3.8以前に取り込んだ)場合は消せないため、
@@ -950,35 +1127,36 @@ async function fetchCalendarList(provider){
 const CAL_RESET_BACK_WEEKS=4;
 async function clearImportedEvents(){
   let removed=0, weeks=0, untracked=false;
-  const curKey=fmtKey(monday);
   for(let i=-CAL_RESET_BACK_WEEKS; i<CAL_SYNC_WEEKS; i++){
     const mon=new Date(monday); mon.setDate(mon.getDate()+i*7);
     const key=fmtKey(mon);
-    const w = key===curKey ? week : await loadWeekByKey(key);
-    const labels=(w.calImported||{})[me]||[];
-    const cells=w.schedule[me]||[];
-    const hasText=cells.some(c=>String(c||"").trim());
-    if(!labels.length){ if(hasText) untracked=true; continue; }
-    let changed=false;
-    for(let d=0; d<5; d++){
-      const lines=String(cells[d]||"").split("\n");
-      const kept=lines.filter(ln=>!labels.includes(ln));
-      if(kept.length!==lines.length){ removed+=lines.length-kept.length; changed=true; }
-      w.schedule[me][d]=kept.join("\n").replace(/^\n+|\n+$/g,"");
-    }
-    w.calImported[me]=[];
-    if(changed||labels.length){
-      weeks++;
-      if(key===curKey) await saveWeekNow(); else await saveWeekByKey(key,w);
-    }
+    const res=await updateWeekMine(key, (w)=>{
+      const labels=w.calImported[me];
+      const cells=w.schedule[me];
+      if(!labels.length){
+        if(cells.some(c=>String(c||"").trim())) untracked=true;
+        return {changed:false};
+      }
+      let n=0;
+      for(let d=0; d<5; d++){
+        const lines=String(cells[d]||"").split("\n");
+        const kept=lines.filter(ln=>!labels.includes(ln));
+        n+=lines.length-kept.length;
+        w.schedule[me][d]=kept.join("\n").replace(/^\n+|\n+$/g,"");
+      }
+      w.calImported[me]=[];
+      return {changed:true, n};
+    });
+    if(res.changed){ weeks++; removed+=res.n; }
   }
   return {removed, weeks, untracked};
 }
 async function resetCalendarLink(){
   if(!confirm(
-    "カレンダー連携をリセットします。\n\n"
+    `カレンダー連携をリセットします(対象は自分「${me}」の分だけです)。\n\n`
     +"・保存した「取込対象カレンダー」の選択を削除します\n"
     +"・サインアウトし、次回の取込で別のアカウントを選べるようにします\n\n"
+    +"※他のメンバーの予定・設定には一切影響しません。\n\n"
     +"続けますか?")) return;
   const alsoClear=confirm(
     "これまでに取り込んだ予定も、予定表から削除しますか?\n\n"
@@ -1079,28 +1257,34 @@ async function importCalendarWeek(){
     await runOutlookImport(ids);
   }catch(e){ alert("取込エラー:"+(e.message||e)); }
 }
-async function runOutlookImport(ids){
-  const calIds=ids||calSelected("outlook");
+/* Outlookの予定を取得して [{date,label}] に整形する(手動取込・自動取込で共用) */
+async function fetchOutlookEvents(calIds){
   const {start,end}=calSyncRange();
   const q=`startDateTime=${encodeURIComponent(start.toISOString())}&endDateTime=${encodeURIComponent(end.toISOString())}&$orderby=start/dateTime&$top=250`;
-  try{
-    let events=[];
-    for(const cid of calIds){
-      let url=`https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(cid)}/calendarView?${q}`;
-      for(let page=0; page<5 && url; page++){
-        const j=await graphGetTZ(url);
-        events=events.concat(j.value||[]);
-        url=j["@odata.nextLink"]||null;
-      }
+  let events=[];
+  for(const cid of calIds){
+    let url=`https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(cid)}/calendarView?${q}`;
+    for(let page=0; page<5 && url; page++){
+      const j=await graphGetTZ(url);
+      events=events.concat(j.value||[]);
+      url=j["@odata.nextLink"]||null;
     }
-    if(!events.length){ alert(`今週から${CAL_SYNC_WEEKS}週間の予定は見つかりませんでした。`); return; }
-    const items=events.map(ev=>{
-      const dt=new Date(ev.start.dateTime);
-      const timeLabel=ev.isAllDay? "終日" : `${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
-      return {date:dt, label:`${timeLabel} ${ev.subject||"(件名なし)"}`};
-    });
+  }
+  const items=events.map(ev=>{
+    const dt=new Date(ev.start.dateTime);
+    const timeLabel=ev.isAllDay? "終日" : `${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
+    return {date:dt, label:`${timeLabel} ${ev.subject||"(件名なし)"}`};
+  });
+  items.seen=events.length;
+  return items;
+}
+async function runOutlookImport(ids){
+  const calIds=ids||calSelected("outlook");
+  try{
+    const items=await fetchOutlookEvents(calIds);
+    if(!items.seen){ alert(`今週から${CAL_SYNC_WEEKS}週間の予定は見つかりませんでした。`); return; }
     const res=await applyCalendarEvents(items);
-    alert(calImportDoneMessage(res, events.length, calIds.length));
+    alert(calImportDoneMessage(res, items.seen, calIds.length));
   }catch(e){ alert("取込エラー:"+(e.message||e)); }
 }
 
@@ -1162,33 +1346,39 @@ async function importGoogleCalendarWeek(){
     await runGoogleImport(ids);
   }catch(e){ alert("取込エラー:"+(e.message||e)); }
 }
-async function runGoogleImport(ids){
-  const calIds=ids||calSelected("google");
+/* Googleの予定を取得して [{date,label}] に整形する(手動取込・自動取込で共用) */
+async function fetchGoogleEvents(calIds){
   const {start,end}=calSyncRange();
   const q=`timeMin=${encodeURIComponent(start.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=250`;
-  try{
-    let events=[];
-    for(const cid of calIds){
-      let pageToken="";
-      for(let page=0; page<5; page++){
-        const r=await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cid)}/events?${q}${pageToken?`&pageToken=${encodeURIComponent(pageToken)}`:""}`,
-          {headers:{Authorization:`Bearer ${googleToken}`}});
-        if(!r.ok){ const t=await r.text(); throw new Error(googleApiErrorMessage(r.status, t)); }
-        const j=await r.json();
-        events=events.concat(j.items||[]);
-        pageToken=j.nextPageToken||"";
-        if(!pageToken) break;
-      }
+  let events=[];
+  for(const cid of calIds){
+    let pageToken="";
+    for(let page=0; page<5; page++){
+      const r=await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cid)}/events?${q}${pageToken?`&pageToken=${encodeURIComponent(pageToken)}`:""}`,
+        {headers:{Authorization:`Bearer ${googleToken}`}});
+      if(!r.ok){ const t=await r.text(); throw new Error(googleApiErrorMessage(r.status, t)); }
+      const j=await r.json();
+      events=events.concat(j.items||[]);
+      pageToken=j.nextPageToken||"";
+      if(!pageToken) break;
     }
-    if(!events.length){ alert(`今週から${CAL_SYNC_WEEKS}週間の予定は見つかりませんでした。`); return; }
-    const items=events.map(ev=>{
-      const isAllDay=!ev.start?.dateTime;
-      const dt=new Date(ev.start?.dateTime || ev.start?.date);
-      const timeLabel=isAllDay? "終日" : `${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
-      return {date:dt, label:`${timeLabel} ${ev.summary||"(件名なし)"}`};
-    });
+  }
+  const items=events.map(ev=>{
+    const isAllDay=!ev.start?.dateTime;
+    const dt=new Date(ev.start?.dateTime || ev.start?.date);
+    const timeLabel=isAllDay? "終日" : `${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
+    return {date:dt, label:`${timeLabel} ${ev.summary||"(件名なし)"}`};
+  });
+  items.seen=events.length;
+  return items;
+}
+async function runGoogleImport(ids){
+  const calIds=ids||calSelected("google");
+  try{
+    const items=await fetchGoogleEvents(calIds);
+    if(!items.seen){ alert(`今週から${CAL_SYNC_WEEKS}週間の予定は見つかりませんでした。`); return; }
     const res=await applyCalendarEvents(items);
-    alert(calImportDoneMessage(res, events.length, calIds.length));
+    alert(calImportDoneMessage(res, items.seen, calIds.length));
   }catch(e){ alert("取込エラー:"+(e.message||e)); }
 }
 
@@ -2905,16 +3095,27 @@ function renderMeeting(){
           ${sch.map(s=>`<div style="font-size:12.5px; display:flex; gap:8px; align-items:flex-start;"><span style="width:52px; flex-shrink:0; font-weight:700; color:${s.isToday?"#B34608":"#6B7A87"};">${esc(s.label)}</span><span style="white-space:pre-wrap;">${esc(s.text)}</span></div>`).join("")}
         </div>
       </div>`:""}
-      ${myTodos.length? `
       <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
         <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">TODO(未完了${myTodos.length}件)</div>
         ${myTodos.map(t=>{
           const d=todoDueInfo(t);
           const col=!d? "#8A959E" : d.level==="over"? "#9B2C2C" : d.level==="today"? "#B34608" : d.level==="soon"? "#7A5B00" : "#6B7A87";
           const cn=todoCaseName(t);
-          return `<div style="font-size:12.5px; margin-bottom:3px;">・${esc(t.text)}<span style="color:${col}; font-size:11px; font-weight:${d&&(d.level==="over"||d.level==="today")?800:400};">${t.due_date?`　期限 ${esc(t.due_date)}${d?`(${d.label})`:""}`:"　期限なし"}</span>${cn?`<span style="color:#6B7A87; font-size:11px;">　案件:${esc(cn)}</span>`:""}</div>`;
+          return `
+          <div style="display:flex; align-items:flex-start; gap:6px; margin-bottom:4px;">
+            <input type="checkbox" data-mt-done="${t.id}" style="margin-top:3px;">
+            <div style="flex:1; min-width:0; font-size:12.5px;">${esc(t.text)}
+              <span style="color:${col}; font-size:11px; font-weight:${d&&(d.level==="over"||d.level==="today")?800:400};">${t.due_date?`　期限 ${esc(t.due_date)}${d?`(${d.label})`:""}`:"　期限なし"}</span>
+              ${cn?`<span style="color:#6B7A87; font-size:11px;">　案件:${esc(cn)}</span>`:""}
+            </div>
+            <button class="btn btn-small btn-secondary" data-mt-edit="${t.id}" style="padding:0 6px; font-size:10.5px;">編集</button>
+          </div>`;
         }).join("")}
-      </div>`:""}
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <input type="text" data-mt-add="${esc(m)}" class="w100" placeholder="TODOを追加してEnter" style="font-size:12px; padding:4px 6px;">
+          <button class="btn btn-small btn-secondary" data-mt-addbtn="${esc(m)}">追加</button>
+        </div>
+      </div>
       ${casePlans.length? `
       <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
         <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">案件の今週の予定</div>
@@ -2957,6 +3158,17 @@ function renderMeeting(){
   document.querySelectorAll("[data-ns-issue]").forEach(t=>t.addEventListener("change",()=>{
     const [m,idx]=t.dataset.nsIssue.split("|");
     week.nippoSummary[m][+idx].issue=t.value; queueSave("week");
+  }));
+  /* 会議モードからTODOを完了/編集/追加できるようにする */
+  document.querySelectorAll("[data-mt-done]").forEach(c=>c.addEventListener("change", ()=>toggleTodoDone(+c.dataset.mtDone, c.checked)));
+  document.querySelectorAll("[data-mt-edit]").forEach(b=>b.addEventListener("click", ()=>openTodoEdit(b.dataset.mtEdit)));
+  const mtAdd=(member, input)=>{ const v=input.value.trim(); if(!v) return; input.value=""; addTodoForMember(member, v); };
+  document.querySelectorAll("[data-mt-add]").forEach(inp=>inp.addEventListener("keydown", (e)=>{
+    if(e.key==="Enter"){ e.preventDefault(); mtAdd(inp.dataset.mtAdd, inp); }
+  }));
+  document.querySelectorAll("[data-mt-addbtn]").forEach(b=>b.addEventListener("click", ()=>{
+    const inp=document.querySelector(`[data-mt-add="${CSS.escape(b.dataset.mtAddbtn)}"]`);
+    if(inp) mtAdd(b.dataset.mtAddbtn, inp);
   }));
   document.querySelectorAll("[data-ns-del]").forEach(b=>b.addEventListener("click",()=>{
     const [m,idx]=b.dataset.nsDel.split("|");
@@ -3380,6 +3592,12 @@ document.addEventListener("DOMContentLoaded", ()=>{
   document.querySelectorAll(".tab-btn").forEach(b=>b.addEventListener("click",()=>switchTab(b.dataset.tab)));
   $("btnAddTodo").addEventListener("click", addTodo);
   $("todoInput").addEventListener("keydown", e=>{ if(e.key==="Enter") addTodo(); });
+  $("btnTodoCancel").addEventListener("click", ()=>{ $("todoModal").classList.remove("show"); editingTodoId=null; });
+  $("btnTodoSave").addEventListener("click", saveTodoEdit);
+  $("btnTodoDelete").addEventListener("click", async ()=>{
+    const t=todos.find(x=>x.id===editingTodoId); if(!t) return;
+    if(await deleteTodoById(t.id, t.text)){ $("todoModal").classList.remove("show"); editingTodoId=null; }
+  });
   $("todoFilterOwner").addEventListener("change", renderTodos);
   $("todoShowDone").addEventListener("change", renderTodos);
   $("boardAnnShowRead").addEventListener("change", renderBoardAnnouncements);
@@ -3400,6 +3618,16 @@ document.addEventListener("DOMContentLoaded", ()=>{
     await openCalendarPicker("google", null);
   });
   $("btnCalendarReset").addEventListener("click", resetCalendarLink);
+  $("calAutoToggle").addEventListener("change", async (e)=>{
+    const on=e.target.checked;
+    if(on && !calSelected("google").length && !calSelected("outlook").length){
+      alert("先に一度「Outlookから自動取込」または「Googleカレンダーから自動取込」を実行して、取込対象カレンダーを決めてください。");
+      e.target.checked=false; return;
+    }
+    await setCalAutoOn(on);
+    setStatus(on? `毎朝${CAL_AUTO_HOUR}時以降の初回起動で自動取込します` : "自動取込をオフにしました");
+    if(on) maybeAutoImportCalendar().catch(err=>console.error(err));
+  });
   $("btnCalPickAll").addEventListener("click", ()=>{ if(!calPickState) return; calPickState.list.forEach(c=>calPickState.checked.add(c.id)); renderCalPickList(); });
   $("btnCalPickNone").addEventListener("click", ()=>{ if(!calPickState) return; calPickState.checked.clear(); renderCalPickList(); });
   $("btnCalPickCancel").addEventListener("click", ()=>{ $("calPickModal").classList.remove("show"); calPickState=null; });
