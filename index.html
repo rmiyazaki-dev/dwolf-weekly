@@ -871,6 +871,34 @@ function googleLogin(){
     }catch(e){ console.error(e); resolve(false); }
   });
 }
+/* GoogleのAPIエラーは生JSONのままだと原因が読み取れないため、よくある原因は
+   日本語の対処法(必要なら有効化用URL付き)に翻訳して返す */
+function googleApiErrorMessage(status, bodyText){
+  let err=null;
+  try{ err=JSON.parse(bodyText).error; }catch(_){}
+  const reason=(err&&err.errors&&err.errors[0]&&err.errors[0].reason)||(err&&err.status)||"";
+  const msg=(err&&err.message)||String(bodyText||"").slice(0,200);
+  console.error("Google API error", status, bodyText);
+  /* Calendar APIがプロジェクトで有効化されていない場合。エラー本文に含まれる
+     有効化ページのURL(なければプロジェクト番号から組み立てたURL)を案内する */
+  if(status===403 && (reason==="accessNotConfigured" || /has not been used in project|is disabled/i.test(msg))){
+    let link="";
+    const fromDetails=(err&&err.details||[]).flatMap(d=>d.links||[]).map(l=>l.url).find(Boolean);
+    const inMsg=(msg.match(/https:\/\/console\.[^\s"]+/)||[])[0];
+    const proj=(msg.match(/project\s+(\d+)/)||[])[1];
+    link=fromDetails||inMsg||(proj? `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=${proj}`:"");
+    return "Google Cloud側で「Google Calendar API」が有効になっていません。\n\n"
+      +"下記のページを開いて「有効にする(ENABLE)」を押してください。反映まで数分かかることがあります。\n\n"
+      +(link||"Google Cloud Console → APIとサービス → ライブラリ → Google Calendar API");
+  }
+  if(status===401 || reason==="authError"){
+    return "Googleの認証が切れています。もう一度「Googleカレンダーから自動取込」を押してサインインし直してください。";
+  }
+  if(status===403 && /insufficient|scope/i.test(msg)){
+    return "カレンダーの読み取り権限が許可されていません。サインイン時の同意画面でカレンダーへのアクセスを許可してください。";
+  }
+  return `Google ${status}:${msg.slice(0,200)}`;
+}
 async function importGoogleCalendarWeek(){
   if(!settings.googleClientId){ alert("設定タブでGoogleクライアントIDを登録してください。"); return; }
   if(!ensureGsi()){ alert("Google連携の読み込みに失敗しました。少し待ってページを再読み込みしてください。"); return; }
@@ -880,7 +908,7 @@ async function importGoogleCalendarWeek(){
   const url=`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(start.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=100`;
   try{
     const r=await fetch(url,{headers:{Authorization:`Bearer ${googleToken}`}});
-    if(!r.ok){ const t=await r.text(); throw new Error(`Google ${r.status}:${t.slice(0,140)}`); }
+    if(!r.ok){ const t=await r.text(); throw new Error(googleApiErrorMessage(r.status, t)); }
     const j=await r.json();
     const events=j.items||[];
     if(!events.length){ alert("この週の予定は見つかりませんでした。"); return; }
