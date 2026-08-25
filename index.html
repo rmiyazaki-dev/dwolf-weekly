@@ -169,7 +169,9 @@
         <span class="section-num">01</span><h2 class="section-title">週間スケジュール(月〜金)</h2>
         <div style="margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;">
           <button class="btn btn-primary btn-small" id="btnCalendarImport">Outlookから自動取込</button>
+          <button class="btn btn-secondary btn-small" id="btnCalendarPickOutlook" title="Outlookで取り込むカレンダーを選ぶ">対象カレンダー</button>
           <button class="btn btn-primary btn-small" id="btnGoogleCalendarImport">Googleカレンダーから自動取込</button>
+          <button class="btn btn-secondary btn-small" id="btnCalendarPickGoogle" title="Googleで取り込むカレンダーを選ぶ">対象カレンダー</button>
           <input type="file" id="icsFile" accept=".ics,text/calendar" style="display:none">
           <button class="btn btn-secondary btn-small" id="btnIcs">ICSファイル取込(手動)</button>
         </div>
@@ -351,6 +353,23 @@
 </div>
 
 <!-- 失注モーダル -->
+<!-- 取込対象カレンダーの選択 -->
+<div class="modal" id="calPickModal">
+  <div class="modal-content" style="max-width:480px;">
+    <h3 class="modal-title" id="calPickTitle"></h3>
+    <div style="font-size:11.5px; color:#6B7A87; margin-bottom:8px;">取り込みたいカレンダーにチェックを入れてください。選択は自分専用に保存され、次回以降はこの画面は出ません。</div>
+    <div style="display:flex; gap:8px; margin-bottom:8px;">
+      <button class="btn btn-secondary btn-small" id="btnCalPickAll">すべて選択</button>
+      <button class="btn btn-secondary btn-small" id="btnCalPickNone">すべて解除</button>
+    </div>
+    <div id="calPickList" style="max-height:45vh; overflow-y:auto; border:1px solid #EEE; border-radius:6px; padding:6px;"></div>
+    <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end;">
+      <button class="btn btn-secondary" id="btnCalPickCancel">キャンセル</button>
+      <button class="btn btn-primary" id="btnCalPickSave">保存して取り込む</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="lostModal">
   <div class="modal-content" style="max-width:440px;">
     <h3 class="modal-title" id="lostModalTitle"></h3>
@@ -830,15 +849,105 @@ async function graphGetTZ(url){
   if(!r.ok){ const t=await r.text(); throw new Error(`Graph ${r.status}:${t.slice(0,140)}`); }
   return r.json();
 }
+/* ---------- 取込対象カレンダーの選択(Outlook/Google共通) ----------
+   1アカウントに複数カレンダーがある場合に、どれを取り込むかを個人ごとに保存する。
+   settingsは全員共通のkvなので、氏名をキーにして各自の選択を分けて持つ。 */
+function calSelected(provider){
+  const all=(settings.calSelect||{})[provider]||{};
+  const ids=all[me];
+  return Array.isArray(ids)? ids : [];
+}
+async function setCalSelected(provider, ids){
+  settings.calSelect=settings.calSelect||{};
+  settings.calSelect[provider]=settings.calSelect[provider]||{};
+  settings.calSelect[provider][me]=ids;
+  await kvSet("settings", settings);
+}
+/* 利用可能なカレンダー一覧を [{id,name,primary}] で返す */
+async function fetchCalendarList(provider){
+  if(provider==="google"){
+    const r=await fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader&maxResults=250",
+      {headers:{Authorization:`Bearer ${googleToken}`}});
+    if(!r.ok){ const t=await r.text(); throw new Error(googleApiErrorMessage(r.status, t)); }
+    const j=await r.json();
+    return (j.items||[]).map(c=>({id:c.id, name:c.summaryOverride||c.summary||c.id, primary:!!c.primary}));
+  }
+  const j=await graphGet("https://graph.microsoft.com/v1.0/me/calendars?$top=100");
+  return (j.value||[]).map(c=>({id:c.id, name:c.name||c.id, primary:!!c.isDefaultCalendar}));
+}
+let calPickState=null;
+/* カレンダー選択モーダルを開く。保存後に onSaved を呼ぶ */
+async function openCalendarPicker(provider, onSaved){
+  let list;
+  try{ list=await fetchCalendarList(provider); }
+  catch(e){ alert("カレンダー一覧の取得に失敗しました:\n"+(e.message||e)); return; }
+  if(!list.length){ alert("利用できるカレンダーが見つかりませんでした。"); return; }
+  const saved=calSelected(provider);
+  const checked=new Set(saved.length? saved : list.filter(c=>c.primary).map(c=>c.id));
+  calPickState={provider, list, checked, onSaved};
+  $("calPickTitle").textContent=`${provider==="google"?"Google":"Outlook"}:取込対象カレンダー`;
+  $("btnCalPickSave").textContent=onSaved? "保存して取り込む" : "保存";
+  renderCalPickList();
+  $("calPickModal").classList.add("show");
+}
+function renderCalPickList(){
+  const {list, checked}=calPickState;
+  $("calPickList").innerHTML=list.map(c=>`
+    <label style="display:flex; align-items:center; gap:8px; padding:5px 4px; border-bottom:1px solid #F2F3F1; font-size:13px;">
+      <input type="checkbox" data-calpick="${esc(c.id)}" ${checked.has(c.id)?"checked":""}>
+      <span style="flex:1;">${esc(c.name)}</span>
+      ${c.primary?'<span class="chip" style="background:#EEF3F0; border:1px solid #D5E0DA; color:#2F6A4F;">メイン</span>':""}
+    </label>`).join("");
+  document.querySelectorAll("[data-calpick]").forEach(cb=>cb.addEventListener("change",()=>{
+    if(cb.checked) calPickState.checked.add(cb.dataset.calpick);
+    else calPickState.checked.delete(cb.dataset.calpick);
+  }));
+}
+async function saveCalendarPick(){
+  if(!calPickState) return;
+  const ids=[...calPickState.checked];
+  if(!ids.length){ alert("カレンダーを1つ以上選択してください。"); return; }
+  const {provider, onSaved}=calPickState;
+  await setCalSelected(provider, ids);
+  $("calPickModal").classList.remove("show");
+  calPickState=null;
+  setStatus("取込対象カレンダーを保存しました");
+  if(onSaved) await onSaved(ids);
+}
+/* 取込時に使うカレンダーIDを決める。未選択なら一覧を取得し、
+   複数ある場合だけ選択画面を出す(1つしかない人はそのまま取り込める) */
+async function resolveCalendarIds(provider){
+  const saved=calSelected(provider);
+  if(saved.length) return saved;
+  let list;
+  try{ list=await fetchCalendarList(provider); }catch(e){ throw e; }
+  if(list.length<=1){
+    const ids=list.map(c=>c.id);
+    if(ids.length) await setCalSelected(provider, ids);
+    return ids;
+  }
+  return null; /* 呼び出し側で選択モーダルを出す */
+}
 async function importCalendarWeek(){
   if(!teamsCfgOk()){ alert("設定タブでテナントID・クライアントIDを先に登録してください(Teams連携と共通です)。"); return; }
   const ok=await calendarLogin();
   if(!ok){ alert("Microsoftサインインが必要です。もう一度ボタンを押してください。"); return; }
-  const start=new Date(monday); const end=new Date(monday); end.setDate(end.getDate()+5);
-  const url=`https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${encodeURIComponent(start.toISOString())}&endDateTime=${encodeURIComponent(end.toISOString())}&$orderby=start/dateTime&$top=100`;
   try{
-    const j=await graphGetTZ(url);
-    const events=j.value||[];
+    const ids=await resolveCalendarIds("outlook");
+    if(!ids){ await openCalendarPicker("outlook", ()=>runOutlookImport()); return; }
+    await runOutlookImport(ids);
+  }catch(e){ alert("取込エラー:"+(e.message||e)); }
+}
+async function runOutlookImport(ids){
+  const calIds=ids||calSelected("outlook");
+  const start=new Date(monday); const end=new Date(monday); end.setDate(end.getDate()+5);
+  const q=`startDateTime=${encodeURIComponent(start.toISOString())}&endDateTime=${encodeURIComponent(end.toISOString())}&$orderby=start/dateTime&$top=100`;
+  try{
+    let events=[];
+    for(const cid of calIds){
+      const j=await graphGetTZ(`https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(cid)}/calendarView?${q}`);
+      events=events.concat(j.value||[]);
+    }
     if(!events.length){ alert("この週の予定は見つかりませんでした。"); return; }
     let count=0;
     events.forEach(ev=>{
@@ -851,7 +960,7 @@ async function importCalendarWeek(){
       if(!cell.includes(label)){ week.schedule[me][dayIdx]=cell? cell+"\n"+label : label; count++; }
     });
     renderBoard(); queueSave("week");
-    alert(`${count}件の予定を取り込みました(${events.length}件中、重複除く)。`);
+    alert(`${count}件の予定を取り込みました(${events.length}件中、重複除く／カレンダー${calIds.length}件)。`);
   }catch(e){ alert("取込エラー:"+(e.message||e)); }
 }
 
@@ -904,13 +1013,25 @@ async function importGoogleCalendarWeek(){
   if(!ensureGsi()){ alert("Google連携の読み込みに失敗しました。少し待ってページを再読み込みしてください。"); return; }
   const ok=await googleLogin();
   if(!ok){ alert("Googleサインインが必要です。もう一度ボタンを押してください(ポップアップブロックにご注意ください)。"); return; }
-  const start=new Date(monday); const end=new Date(monday); end.setDate(end.getDate()+5);
-  const url=`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(start.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=100`;
   try{
-    const r=await fetch(url,{headers:{Authorization:`Bearer ${googleToken}`}});
-    if(!r.ok){ const t=await r.text(); throw new Error(googleApiErrorMessage(r.status, t)); }
-    const j=await r.json();
-    const events=j.items||[];
+    const ids=await resolveCalendarIds("google");
+    if(!ids){ await openCalendarPicker("google", ()=>runGoogleImport()); return; }
+    await runGoogleImport(ids);
+  }catch(e){ alert("取込エラー:"+(e.message||e)); }
+}
+async function runGoogleImport(ids){
+  const calIds=ids||calSelected("google");
+  const start=new Date(monday); const end=new Date(monday); end.setDate(end.getDate()+5);
+  const q=`timeMin=${encodeURIComponent(start.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=100`;
+  try{
+    let events=[];
+    for(const cid of calIds){
+      const r=await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cid)}/events?${q}`,
+        {headers:{Authorization:`Bearer ${googleToken}`}});
+      if(!r.ok){ const t=await r.text(); throw new Error(googleApiErrorMessage(r.status, t)); }
+      const j=await r.json();
+      events=events.concat(j.items||[]);
+    }
     if(!events.length){ alert("この週の予定は見つかりませんでした。"); return; }
     let count=0;
     events.forEach(ev=>{
@@ -924,7 +1045,7 @@ async function importGoogleCalendarWeek(){
       if(!cell.includes(label)){ week.schedule[me][dayIdx]=cell? cell+"\n"+label : label; count++; }
     });
     renderBoard(); queueSave("week");
-    alert(`${count}件の予定を取り込みました(${events.length}件中、重複除く)。`);
+    alert(`${count}件の予定を取り込みました(${events.length}件中、重複除く／カレンダー${calIds.length}件)。`);
   }catch(e){ alert("取込エラー:"+(e.message||e)); }
 }
 
@@ -3123,6 +3244,22 @@ document.addEventListener("DOMContentLoaded", ()=>{
   $("btnIcs").addEventListener("click", ()=>$("icsFile").click());
   $("btnCalendarImport").addEventListener("click", importCalendarWeek);
   $("btnGoogleCalendarImport").addEventListener("click", importGoogleCalendarWeek);
+  /* 「対象カレンダー」は選択のみ(保存後の自動取込はしない)。サインインは必要 */
+  $("btnCalendarPickOutlook").addEventListener("click", async ()=>{
+    if(!teamsCfgOk()){ alert("設定タブでテナントID・クライアントIDを先に登録してください(Teams連携と共通です)。"); return; }
+    if(!await calendarLogin()){ alert("Microsoftサインインが必要です。もう一度ボタンを押してください。"); return; }
+    await openCalendarPicker("outlook", null);
+  });
+  $("btnCalendarPickGoogle").addEventListener("click", async ()=>{
+    if(!settings.googleClientId){ alert("設定タブでGoogleクライアントIDを登録してください。"); return; }
+    if(!ensureGsi()){ alert("Google連携の読み込みに失敗しました。少し待ってページを再読み込みしてください。"); return; }
+    if(!await googleLogin()){ alert("Googleサインインが必要です。もう一度ボタンを押してください(ポップアップブロックにご注意ください)。"); return; }
+    await openCalendarPicker("google", null);
+  });
+  $("btnCalPickAll").addEventListener("click", ()=>{ if(!calPickState) return; calPickState.list.forEach(c=>calPickState.checked.add(c.id)); renderCalPickList(); });
+  $("btnCalPickNone").addEventListener("click", ()=>{ if(!calPickState) return; calPickState.checked.clear(); renderCalPickList(); });
+  $("btnCalPickCancel").addEventListener("click", ()=>{ $("calPickModal").classList.remove("show"); calPickState=null; });
+  $("btnCalPickSave").addEventListener("click", saveCalendarPick);
   $("icsFile").addEventListener("change", importICS);
   $("btnAddCase").addEventListener("click", async ()=>{ await loadCustomers(); openCase(null); });
   $("btnCaseCancel").addEventListener("click", ()=>{ pendingMfLink=null; $("caseModal").classList.remove("show"); });
