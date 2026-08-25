@@ -127,6 +127,7 @@
 
   <nav id="appNav" style="display:none;">
     <button class="tab-btn active" data-tab="board">週間ボード</button>
+    <button class="tab-btn" data-tab="todos">TODO<span class="badge" id="todoBadge" style="display:none;"></span></button>
     <button class="tab-btn" data-tab="cases">案件管理</button>
     <button class="tab-btn" data-tab="customers">顧客</button>
     <button class="tab-btn" data-tab="kanban">カンバン</button>
@@ -175,14 +176,37 @@
       </div>
       <div style="overflow-x:auto;"><table class="grid" id="scheduleTable"></table></div>
 
-      <div class="section-header"><span class="section-num">02</span><h2 class="section-title" id="todoTitle"></h2></div>
+      <div class="section-header">
+        <span class="section-num">02</span><h2 class="section-title">連絡事項</h2>
+        <label style="margin-left:auto; font-size:12px; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="boardAnnShowRead"> 確認済みも表示</label>
+      </div>
       <div class="card">
-        <div style="display:flex; gap:8px; margin-bottom:10px;">
-          <input type="text" id="todoInput" class="w100" placeholder="TODOを入力してEnter">
+        <div style="font-size:11.5px; color:#6B7A87; margin-bottom:8px;">チェックを入れると既読になり、この欄から非表示になります(連絡事項タブではいつでも読み返せます)。</div>
+        <div id="boardAnnList"></div>
+      </div>
+    </div>
+
+    <!-- TODO -->
+    <div class="section" data-section="todos">
+      <div class="section-header">
+        <span class="section-num">03</span><h2 class="section-title">TODO(全員で共有)</h2>
+        <div style="margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <select id="todoFilterOwner"><option>全員</option></select>
+          <label style="font-size:12px; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="todoShowDone"> 完了済も表示</label>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-size:12px; font-weight:700; margin-bottom:8px;">TODOを追加</div>
+        <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1.5fr auto; gap:8px; align-items:end;">
+          <label style="font-size:11px; color:#6B7A87; font-weight:700;">内容<input type="text" id="todoInput" class="w100" placeholder="やることを入力" style="margin-top:3px;"></label>
+          <label style="font-size:11px; color:#6B7A87; font-weight:700;">担当<select id="todoAssignee" class="w100" style="margin-top:3px;"></select></label>
+          <label style="font-size:11px; color:#6B7A87; font-weight:700;">期限<input type="date" id="todoDue" class="w100" style="margin-top:3px;"></label>
+          <label style="font-size:11px; color:#6B7A87; font-weight:700;">案件(任意)<select id="todoCase" class="w100" style="margin-top:3px;"></select></label>
           <button class="btn btn-primary" id="btnAddTodo">追加</button>
         </div>
-        <div id="todoList"></div>
       </div>
+      <div id="todoAlerts"></div>
+      <div id="todoList"></div>
     </div>
 
     <!-- 案件管理 -->
@@ -221,8 +245,13 @@
 
     <!-- カンバン -->
     <div class="section" data-section="kanban">
-      <div class="section-header"><span class="section-num">03</span><h2 class="section-title">カンバンボード(進捗俯瞰)</h2></div>
-      <div class="alert alert-info" style="font-size:12px;">◀ ▶ ボタンでステータスを移動できます(変更は履歴に自動記録されます)。</div>
+      <div class="section-header">
+        <span class="section-num">03</span><h2 class="section-title">カンバンボード(進捗俯瞰)</h2>
+        <div style="margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <select id="kanbanFilterOwner"><option>全員</option></select>
+        </div>
+      </div>
+      <div class="alert alert-info" style="font-size:12px;">◀ ▶ ボタンでステータスを移動できます(変更は履歴に自動記録されます)。担当の絞り込みは営業担当・フライト担当を横断して検索します。</div>
       <div id="kanbanBoard" style="display:flex; gap:10px; overflow-x:auto; align-items:flex-start; padding-bottom:8px;"></div>
     </div>
 
@@ -586,10 +615,11 @@ async function enterApp(){
   $("appNav").style.display="flex";
   $("btnLogout").textContent=`${me} ▾`;
   updateWeekLabel();
-  await Promise.all([loadWeek(), loadCases()]);
+  await Promise.all([loadWeek(), loadCases(), loadAnnouncements(), loadTodos()]);
   renderBoard();
   switchTab("board");
   refreshFeedBadge();
+  refreshTodoBadge();
 }
 function logout(){
   sessionStorage.removeItem("dwolf_user");
@@ -601,14 +631,15 @@ async function switchTab(tab){
   currentTab=tab;
   document.querySelectorAll(".tab-btn").forEach(b=>b.classList.toggle("active", b.dataset.tab===tab));
   document.querySelectorAll(".section").forEach(d=>d.classList.toggle("active", d.dataset.section===tab));
-  if(tab==="board"){ await loadWeek(); renderBoard(); }
+  if(tab==="board"){ await Promise.all([loadWeek(), loadAnnouncements()]); renderBoard(); refreshFeedBadge(); }
+  if(tab==="todos"){ await Promise.all([loadTodos(), loadCases()]); renderTodos(); refreshTodoBadge(); }
   if(tab==="cases"){ await Promise.all([loadCases(), loadCustomers(), loadMfReviewQueue()]); renderCases(); }
   if(tab==="customers"){ await Promise.all([loadCases(), loadCustomers()]); renderCustomers(); }
   if(tab==="kanban"){ await loadCases(); renderKanban(); }
   if(tab==="dashboard"){ await Promise.all([loadCases(), loadCustomers()]); renderDashboard(); }
   if(tab==="feed"){ await loadAnnouncements(); renderFeed(); await renderAudit(); refreshFeedBadge(); }
   if(tab==="nippo"){ await renderNippo(); }
-  if(tab==="meeting"){ await Promise.all([loadWeek(), loadCases(), loadPrevWeekDecisions()]); renderMeeting(); }
+  if(tab==="meeting"){ await Promise.all([loadWeek(), loadCases(), loadTodos(), loadPrevWeekDecisions()]); renderMeeting(); }
   if(tab==="report"){ await Promise.all([loadWeek(), loadCases()]); renderReport(); }
   if(tab==="master"){ renderMaster(); }
   if(tab==="settings"){ renderSettings(); }
@@ -638,33 +669,145 @@ function renderBoard(){
       queueSave("week");
     });
   });
-  $("todoTitle").textContent=`今週のTODO(${me})`;
-  renderTodos();
+  renderBoardAnnouncements();
+}
+/* 週間ボードの連絡事項。チェックを入れると既読になり、この欄からは消える
+   (連絡事項タブでは引き続き全件読める) */
+function renderBoardAnnouncements(){
+  const showRead=$("boardAnnShowRead").checked;
+  const list=announcements.filter(a=>showRead? true : !(a.reads||[]).includes(me));
+  $("boardAnnList").innerHTML = list.length===0
+    ? `<div style="color:#3D4F5E; font-size:13px;">${showRead?"連絡事項はまだありません。":"未確認の連絡事項はありません。"}</div>`
+    : list.map(a=>{
+      const read=(a.reads||[]).includes(me);
+      return `
+      <div class="todo-item ${read?"done":""}" style="align-items:flex-start;">
+        <input type="checkbox" data-bann="${a.id}" ${read?"checked":""} style="margin-top:3px;">
+        <div style="flex:1;">
+          <div style="font-size:11px; color:#8A959E;">${esc(a.author)}・${fmtDT(a.created_at)}</div>
+          <div style="white-space:pre-wrap; font-size:13px;">${esc(a.content)}</div>
+        </div>
+      </div>`;
+    }).join("");
+  document.querySelectorAll("[data-bann]").forEach(c=>c.addEventListener("change", async ()=>{
+    const a=announcements.find(x=>x.id==+c.dataset.bann); if(!a) return;
+    const reads=c.checked
+      ? Array.from(new Set([...(a.reads||[]), me]))
+      : (a.reads||[]).filter(r=>r!==me);
+    await sb.from("announcements").update({reads}).eq("id",a.id);
+    a.reads=reads;
+    renderBoardAnnouncements(); refreshFeedBadge();
+  }));
+}
+
+/* ---------- TODO(全員で共有・案件と紐付け可能) ---------- */
+let todos=[];
+async function loadTodos(){
+  const {data,error}=await sb.from("todos").select("*").order("done",{ascending:true}).order("due_date",{ascending:true}).order("id",{ascending:false});
+  if(error){ todos=[]; todoTableMissing=true; return; }
+  todoTableMissing=false;
+  todos=data||[];
+}
+let todoTableMissing=false;
+/* 期限の状態。期限なしはnull、超過/本日/期限内を返す */
+function todoDueInfo(t){
+  if(!t.due_date||t.done) return null;
+  const today=new Date(); today.setHours(0,0,0,0);
+  const diff=Math.round((new Date(t.due_date+"T00:00:00")-today)/86400000);
+  if(diff<0) return {level:"over", label:`期限超過(${-diff}日)`};
+  if(diff===0) return {level:"today", label:"期限は本日"};
+  if(diff<=3) return {level:"soon", label:`あと${diff}日`};
+  return {level:"ok", label:`あと${diff}日`};
+}
+function todoCaseName(t){
+  if(!t.case_id) return "";
+  const c=cases.find(x=>String(x.id)===String(t.case_id));
+  return c? c.name : "(削除された案件)";
 }
 function renderTodos(){
-  const todos=week.todos[me]||[];
-  $("todoList").innerHTML = todos.length===0
-    ? `<div style="color:#3D4F5E; font-size:13px;">まだTODOがありません。</div>`
-    : todos.map(t=>`
-      <div class="todo-item ${t.done?"done":""}">
-        <input type="checkbox" data-todo-t="${t.id}" ${t.done?"checked":""}>
-        <span style="flex:1;">${esc(t.text)}</span>
+  const sel=$("todoFilterOwner");
+  const cur=sel.value||"全員";
+  sel.innerHTML=`<option>全員</option><option ${cur==="担当未設定"?"selected":""}>担当未設定</option>`+master.members.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
+  $("todoAssignee").innerHTML=`<option value="">(担当未設定)</option>`+master.members.map(m=>`<option ${m===me?"selected":""}>${esc(m)}</option>`).join("");
+  $("todoCase").innerHTML=`<option value="">(案件と紐付けない)</option>`+cases.filter(c=>!c.archived).map(c=>`<option value="${c.id}">${esc(c.name)}${c.customerName?`(${esc(c.customerName)})`:""}</option>`).join("");
+  if(todoTableMissing){
+    $("todoAlerts").innerHTML=`<div class="alert alert-error" style="font-size:12px;">TODOテーブルがまだ作成されていません。Supabaseの SQL Editor で <b>setup-todos.sql</b> を実行してください。</div>`;
+    $("todoList").innerHTML="";
+    return;
+  }
+  const showDone=$("todoShowDone").checked;
+  const list=todos
+    .filter(t=>showDone? true : !t.done)
+    .filter(t=>cur==="全員"? true : (cur==="担当未設定"? !t.assignee : t.assignee===cur));
+  const overdue=todos.filter(t=>{ const d=todoDueInfo(t); return d&&(d.level==="over"||d.level==="today"); });
+  $("todoAlerts").innerHTML = overdue.length
+    ? `<div class="alert alert-warning" style="font-size:12px;"><b>期限が来ているTODO:</b>${overdue.map(t=>`${esc(t.text)}(${esc(t.assignee||"担当未設定")}・${esc(t.due_date)})`).join("　/　")}</div>`
+    : "";
+  $("todoList").innerHTML = list.length===0
+    ? `<div class="card" style="text-align:center; color:#3D4F5E; border-style:dashed;">TODOがありません。上のフォームから追加してください。</div>`
+    : `<div class="card">${list.map(t=>{
+      const d=todoDueInfo(t);
+      const dueColor=!d? "#8A959E" : d.level==="over"? "#9B2C2C" : d.level==="today"? "#B34608" : d.level==="soon"? "#7A5B00" : "#3D4F5E";
+      const cname=todoCaseName(t);
+      return `
+      <div class="todo-item ${t.done?"done":""}" style="align-items:flex-start;">
+        <input type="checkbox" data-todo-t="${t.id}" ${t.done?"checked":""} style="margin-top:3px;">
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:13.5px;">${esc(t.text)}</div>
+          <div style="font-size:11px; color:#6B7A87; margin-top:2px; display:flex; gap:10px; flex-wrap:wrap;">
+            <span><b>${esc(t.assignee||"担当未設定")}</b></span>
+            ${t.due_date? `<span style="color:${dueColor}; font-weight:${d&&(d.level==="over"||d.level==="today")?800:400};">期限 ${esc(t.due_date)}${d?`(${d.label})`:""}</span>`:`<span>期限なし</span>`}
+            ${cname? `<span data-todo-case="${t.case_id}" style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;">案件:${esc(cname)}</span>`:""}
+          </div>
+        </div>
         <button class="btn btn-small btn-secondary btn-danger" data-todo-d="${t.id}">削除</button>
-      </div>`).join("");
-  document.querySelectorAll("[data-todo-t]").forEach(c=>c.addEventListener("change",()=>{
-    const t=(week.todos[me]||[]).find(x=>x.id==c.dataset.todoT); if(t) t.done=!t.done;
-    renderTodos(); queueSave("week");
+      </div>`;
+    }).join("")}</div>`;
+  document.querySelectorAll("[data-todo-t]").forEach(c=>c.addEventListener("change", async ()=>{
+    const t=todos.find(x=>x.id==+c.dataset.todoT); if(!t) return;
+    const done=c.checked;
+    await sb.from("todos").update({done, done_at:done?new Date().toISOString():null, updated_at:new Date().toISOString()}).eq("id",t.id);
+    t.done=done;
+    await logAction(done?"TODO完了":"TODO再開", `${t.text}(${t.assignee||"担当未設定"})`);
+    await loadTodos(); renderTodos(); refreshTodoBadge();
   }));
-  document.querySelectorAll("[data-todo-d]").forEach(b=>b.addEventListener("click",()=>{
-    week.todos[me]=(week.todos[me]||[]).filter(x=>x.id!=b.dataset.todoD);
-    renderTodos(); queueSave("week");
+  document.querySelectorAll("[data-todo-d]").forEach(b=>b.addEventListener("click", async ()=>{
+    const t=todos.find(x=>x.id==+b.dataset.todoD); if(!t) return;
+    if(!confirm(`このTODOを削除しますか?\n「${t.text}」`)) return;
+    await sb.from("todos").delete().eq("id",t.id);
+    await logAction("TODO削除", `${t.text}(${t.assignee||"担当未設定"})`);
+    await loadTodos(); renderTodos(); refreshTodoBadge();
+  }));
+  document.querySelectorAll("[data-todo-case]").forEach(el=>el.addEventListener("click", ()=>{
+    const cid=el.dataset.todoCase;
+    dashboardCaseFilter={label:`TODOの案件`, includeArchived:true, predicate:(c)=>String(c.id)===String(cid)};
+    switchTab("cases");
   }));
 }
-function addTodo(){
-  const text=$("todoInput").value.trim(); if(!text) return;
-  week.todos[me].push({id:Date.now(), text, done:false});
-  $("todoInput").value="";
-  renderTodos(); queueSave("week");
+async function addTodo(){
+  const text=$("todoInput").value.trim();
+  if(!text){ alert("TODOの内容を入力してください。"); return; }
+  const row={
+    text,
+    assignee:$("todoAssignee").value||null,
+    due_date:$("todoDue").value||null,
+    case_id:$("todoCase").value? +$("todoCase").value : null,
+    done:false,
+    created_by:me,
+  };
+  const {error}=await sb.from("todos").insert(row);
+  if(error){ alert("TODOの追加に失敗しました。setup-todos.sql が実行済みか確認してください。"); return; }
+  $("todoInput").value=""; $("todoDue").value=""; $("todoCase").value="";
+  await logAction("TODO追加", `${text}(${row.assignee||"担当未設定"}${row.due_date?`・期限${row.due_date}`:""})`);
+  await loadTodos(); renderTodos(); refreshTodoBadge();
+  setStatus("追加しました");
+}
+/* 自分の未完了TODOのうち、期限切れ・本日期限の件数をタブに出す */
+function refreshTodoBadge(){
+  const n=todos.filter(t=>!t.done && t.assignee===me && (()=>{ const d=todoDueInfo(t); return d&&(d.level==="over"||d.level==="today"); })()).length;
+  const b=$("todoBadge");
+  if(!b) return;
+  b.textContent=n; b.style.display=n? "inline-block":"none";
 }
 
 /* ---------- Outlookカレンダー自動取込 ---------- */
@@ -1312,6 +1455,7 @@ function renderCases(){
           <button class="btn btn-secondary btn-small" data-case-his="${cs.id}">履歴</button>
           ${!cs.archived && !(parseFloat(cs.orderAmount)>0)? `<button class="btn btn-secondary btn-small btn-danger" data-case-lost="${cs.id}">失注</button>`:""}
           <button class="btn btn-secondary btn-small btn-danger" data-case-ar="${cs.id}">${cs.archived?"戻す":"完了"}</button>
+          <button class="btn btn-secondary btn-small btn-danger" data-case-del="${cs.id}" style="margin-left:auto;">削除</button>
         </div>
       </div>`;}).join("");
   document.querySelectorAll("[data-case-edit]").forEach(b=>b.addEventListener("click",()=>openCase(+b.dataset.caseEdit)));
@@ -1329,6 +1473,7 @@ function renderCases(){
     renderCases(); setStatus("保存しました");
   }));
   document.querySelectorAll("[data-case-lost]").forEach(b=>b.addEventListener("click",()=>openLostModal(+b.dataset.caseLost)));
+  document.querySelectorAll("[data-case-del]").forEach(b=>b.addEventListener("click",()=>deleteCase(+b.dataset.caseDel)));
 }
 /* ---------- 失注処理 ---------- */
 const LOST_REASONS=["価格","時期・延期","他社に決定","自然消滅","その他"];
@@ -1354,6 +1499,44 @@ async function confirmLost(){
   await logAction("案件失注", `${c.name}:${c.lostReason}`);
   $("lostModal").classList.remove("show");
   renderCases(); setStatus("失注として記録しました");
+}
+/* 案件を完全に削除する。復元できないため、関連データの件数を示したうえで
+   案件名の入力による確認を求める。コメント・履歴・ファイル(Storage含む)・
+   TODOの紐付けもまとめて後始末する */
+async function deleteCase(id){
+  const c=cases.find(x=>x.id===id); if(!c) return;
+  const [{data:cm},{data:cf},{data:ch},{data:td}]=await Promise.all([
+    sb.from("comments").select("id").eq("case_id",id),
+    sb.from("case_files").select("id,path").eq("case_id",id),
+    sb.from("case_history").select("id").eq("case_id",id),
+    sb.from("todos").select("id").eq("case_id",id),
+  ]);
+  const counts=[
+    (cm||[]).length? `コメント${cm.length}件`:"",
+    (cf||[]).length? `ファイル${cf.length}件`:"",
+    (ch||[]).length? `変更履歴${ch.length}件`:"",
+    (td||[]).length? `TODO${td.length}件(案件の紐付けのみ解除)`:"",
+  ].filter(Boolean).join("・");
+  const warn=`この案件を完全に削除します。元に戻せません。\n\n`
+    +`案件名:${c.name}\n顧客:${c.customerName||"未設定"}\n`
+    +`${c.orderAmount?`受注額:${fmtYen(c.orderAmount)}\n`:""}`
+    +`${counts?`同時に削除:${counts}\n`:""}`
+    +`\n※集計から完全に消えます。実績を残したい場合は「完了」でアーカイブしてください。\n\n続けるには案件名を入力してください。`;
+  const answer=prompt(warn,"");
+  if(answer===null) return;
+  if(answer.trim()!==String(c.name).trim()){ alert("案件名が一致しませんでした。削除を中止します。"); return; }
+  const paths=(cf||[]).map(f=>f.path).filter(Boolean);
+  if(paths.length){ try{ await sb.storage.from("case-files").remove(paths); }catch(e){ console.error(e); } }
+  await sb.from("comments").delete().eq("case_id",id);
+  await sb.from("case_files").delete().eq("case_id",id);
+  await sb.from("case_history").delete().eq("case_id",id);
+  /* TODOは残し、案件の紐付けだけ外す(担当者のやることリストを消さないため) */
+  await sb.from("todos").update({case_id:null, updated_at:new Date().toISOString()}).eq("case_id",id);
+  const {error}=await sb.from("cases").delete().eq("id",id);
+  if(error){ alert("削除に失敗しました:"+error.message); return; }
+  await logAction("案件削除", `${c.name}(${c.customerName||"顧客未設定"}${c.orderAmount?`・受注${fmtYen(c.orderAmount)}`:""})`);
+  await loadCases(); renderCases();
+  setStatus("削除しました");
 }
 function openCase(id, prefill){
   editingCase = id==null
@@ -1610,7 +1793,12 @@ async function openHistory(caseId){
 
 /* ---------- カンバンボード ---------- */
 function renderKanban(){
-  const active=cases.filter(c=>!c.archived);
+  const sel=$("kanbanFilterOwner");
+  const cur=sel.value||"全員";
+  sel.innerHTML=`<option>全員</option>`+master.members.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
+  /* 案件管理と同じく、営業担当・フライト担当(主/副①/副②)を横断して絞り込む */
+  const active=cases.filter(c=>!c.archived)
+    .filter(c=>sel.value==="全員"? true : (caseOwnerName(c)===sel.value || flightAssignments(c).some(f=>f.name===sel.value)));
   $("kanbanBoard").innerHTML=master.statuses.map((st,si)=>{
     const items=active.filter(c=>c.status===st);
     return `
@@ -2383,9 +2571,19 @@ function renderMeeting(){
     </div>` : "";
   const ns=week.nippoSummary||{};
   const curKey=currentWeekKey();
+  const mDates=weekDates(monday);
+  const todayISO=toISODate(new Date());
   $("meetingList").innerHTML = master.members.map(m=>{
     const total=mandaySum(m); const over=total>=master.mandayLimit;
     const items=ns[m]||[];
+    /* 週間ボードのカレンダー(week.schedule)を会議資料へ転記する */
+    const sch=DAYS.map((d,i)=>({
+      label:`${d} ${fmtShort(mDates[i])}`,
+      text:((week.schedule[m]||[])[i]||"").trim(),
+      isToday:toISODate(mDates[i])===todayISO,
+    })).filter(s=>s.text);
+    const myTodos=todos.filter(t=>!t.done && t.assignee===m)
+      .sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")));
     const casePlans=cases.filter(c=>!c.archived&&caseOwnerName(c)===m).map(c=>({
       name:c.name,
       customerName:c.customerName||"顧客未設定",
@@ -2408,6 +2606,23 @@ function renderMeeting(){
         <div><label style="font-size:12px; font-weight:700;">手伝えること</label>
           <textarea rows="2" data-hgive="${esc(m)}" style="margin-top:4px;">${esc(week.helpGive[m]||"")}</textarea></div>
       </div>
+      ${sch.length? `
+      <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">今週の予定(週間ボードのカレンダーより)</div>
+        <div style="display:grid; gap:3px;">
+          ${sch.map(s=>`<div style="font-size:12.5px; display:flex; gap:8px; align-items:flex-start;"><span style="width:52px; flex-shrink:0; font-weight:700; color:${s.isToday?"#B34608":"#6B7A87"};">${esc(s.label)}</span><span style="white-space:pre-wrap;">${esc(s.text)}</span></div>`).join("")}
+        </div>
+      </div>`:""}
+      ${myTodos.length? `
+      <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">TODO(未完了${myTodos.length}件)</div>
+        ${myTodos.map(t=>{
+          const d=todoDueInfo(t);
+          const col=!d? "#8A959E" : d.level==="over"? "#9B2C2C" : d.level==="today"? "#B34608" : d.level==="soon"? "#7A5B00" : "#6B7A87";
+          const cn=todoCaseName(t);
+          return `<div style="font-size:12.5px; margin-bottom:3px;">・${esc(t.text)}<span style="color:${col}; font-size:11px; font-weight:${d&&(d.level==="over"||d.level==="today")?800:400};">${t.due_date?`　期限 ${esc(t.due_date)}${d?`(${d.label})`:""}`:"　期限なし"}</span>${cn?`<span style="color:#6B7A87; font-size:11px;">　案件:${esc(cn)}</span>`:""}</div>`;
+        }).join("")}
+      </div>`:""}
       ${casePlans.length? `
       <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
         <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">案件の今週の予定</div>
@@ -2873,6 +3088,10 @@ document.addEventListener("DOMContentLoaded", ()=>{
   document.querySelectorAll(".tab-btn").forEach(b=>b.addEventListener("click",()=>switchTab(b.dataset.tab)));
   $("btnAddTodo").addEventListener("click", addTodo);
   $("todoInput").addEventListener("keydown", e=>{ if(e.key==="Enter") addTodo(); });
+  $("todoFilterOwner").addEventListener("change", renderTodos);
+  $("todoShowDone").addEventListener("change", renderTodos);
+  $("boardAnnShowRead").addEventListener("change", renderBoardAnnouncements);
+  $("kanbanFilterOwner").addEventListener("change", renderKanban);
   $("btnIcs").addEventListener("click", ()=>$("icsFile").click());
   $("btnCalendarImport").addEventListener("click", importCalendarWeek);
   $("btnGoogleCalendarImport").addEventListener("click", importGoogleCalendarWeek);
