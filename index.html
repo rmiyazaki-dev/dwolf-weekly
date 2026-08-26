@@ -221,11 +221,11 @@
         <span class="section-num">03</span><h2 class="section-title">案件管理</h2>
         <div style="margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <select id="filterOwner"><option>全員</option></select>
-          <label style="font-size:12px; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="showArchived"> 完了済も表示</label>
+          <label style="font-size:12px; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="showArchived"> 完了・失注も表示</label>
           <button class="btn btn-primary" id="btnAddCase">＋ 案件追加</button>
         </div>
       </div>
-      <div class="alert alert-info" style="font-size:12px;">案件は週をまたいで自動継続します。完了したら「完了」でアーカイブしてください。</div>
+      <div class="alert alert-info" style="font-size:12px;">案件は週をまたいで自動継続します。終わったら「完了」または「失注」を押すと、進捗ステータスもそれに変わります。不要な案件は「削除」で消せます(元に戻せません)。</div>
       <div id="dashFilterBanner"></div>
       <div id="dueAlerts"></div>
       <div id="mfReviewQueue"></div>
@@ -255,10 +255,9 @@
         <span class="section-num">03</span><h2 class="section-title">カンバンボード(進捗俯瞰)</h2>
         <div style="margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <select id="kanbanFilterOwner"><option>全員</option></select>
-          <label style="font-size:12px; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="kanbanShowArchived"> 完了済も表示</label>
         </div>
       </div>
-      <div class="alert alert-info" style="font-size:12px;">◀ ▶ ボタンでステータスを移動できます(変更は履歴に自動記録されます)。担当の絞り込みは営業担当・フライト担当を横断して検索します。<br>案件カードの「完了」ボタンでアーカイブした案件は通常は非表示です。「完了済も表示」にチェックを入れると、それぞれのステータスの列に薄く表示されます。</div>
+      <div class="alert alert-info" style="font-size:12px;">◀ ▶ ボタンでステータスを移動できます(変更は履歴に自動記録されます)。担当の絞り込みは営業担当・フライト担当を横断して検索します。<br>「完了」「失注」もステータスなので、それぞれの列に表示されます。進行中に戻すときは各カードの「戻す」を押してください。</div>
       <div id="kanbanBoard" style="display:flex; gap:10px; overflow-x:auto; align-items:flex-start; padding-bottom:8px;"></div>
     </div>
 
@@ -554,6 +553,7 @@ async function loadCases(){
   const {data}=await sb.from("cases").select("id,data").order("id",{ascending:false});
   cases=(data||[]).map(r=>({ id:r.id, ...r.data }));
   await migrateCasesV36();
+  await migrateCasesV311();
   const ids=cases.map(c=>c.id);
   commentCounts={}; fileCounts={};
   if(ids.length){
@@ -588,6 +588,28 @@ async function migrateCasesV36(){
     await saveCaseRow(c);
   }
 }
+/* v3.11移行: アーカイブ(archived)を廃止し、終了状態を進捗ステータスで表す。
+   archivedキーが残っている案件だけが対象なので、移行後は再実行されない。 */
+async function migrateCasesV311(){
+  const targets=cases.filter(c=>c.archived!==undefined);
+  if(!targets.length) return;
+  for(const c of targets){
+    if(c.archived){
+      /* 元のステータスを覚えておき、「戻す」で復帰できるようにする */
+      if(!c.prevStatus && c.status!=="完了") c.prevStatus=c.status;
+      c.status = c.lost? "失注" : "完了";
+    }
+    delete c.archived;
+    delete c.lost; /* 失注かどうかはステータスで判断する(lostReasonは分析用に残す) */
+    await saveCaseRow(c);
+  }
+}
+/* 終了した案件(完了・失注)。進行中=それ以外 */
+const DONE_STATUS="完了", LOST_STATUS="失注";
+function isDoneCase(c){ return c.status===DONE_STATUS; }
+function isLostCase(c){ return c.status===LOST_STATUS; }
+function isClosedCase(c){ return isDoneCase(c)||isLostCase(c); }
+function isOpenCase(c){ return !isClosedCase(c); }
 /* 表記上の担当は営業担当。旧「担当」しか入っていない案件のための後方互換 */
 function caseOwnerName(c){ return c.salesOwner || c.owner || ""; }
 /* フライト担当を [{name, ratio}] で返す(主担当・副担当①・副担当②のうち氏名が入っているものだけ) */
@@ -656,6 +678,11 @@ async function boot(){
   if(!master.statuses.includes("請求書提出")){
     const idx=master.statuses.indexOf("完了");
     if(idx>=0) master.statuses.splice(idx,0,"請求書提出"); else master.statuses.push("請求書提出");
+    await kvSet("master",master);
+  }
+  /* v3.11: アーカイブを廃止し、終了状態をステータスで表す。「失注」を最後に追加する */
+  if(!master.statuses.includes("失注")){
+    master.statuses.push("失注");
     await kvSet("master",master);
   }
   settings=(await kvGet("settings"))||{};
@@ -825,7 +852,7 @@ function renderTodos(){
   const cur=sel.value||"全員";
   sel.innerHTML=`<option>全員</option><option ${cur==="担当未設定"?"selected":""}>担当未設定</option>`+master.members.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
   $("todoAssignee").innerHTML=`<option value="">(担当未設定)</option>`+master.members.map(m=>`<option ${m===me?"selected":""}>${esc(m)}</option>`).join("");
-  $("todoCase").innerHTML=`<option value="">(案件と紐付けない)</option>`+cases.filter(c=>!c.archived).map(c=>`<option value="${c.id}">${esc(c.name)}${c.customerName?`(${esc(c.customerName)})`:""}</option>`).join("");
+  $("todoCase").innerHTML=`<option value="">(案件と紐付けない)</option>`+cases.filter(isOpenCase).map(c=>`<option value="${c.id}">${esc(c.name)}${c.customerName?`(${esc(c.customerName)})`:""}</option>`).join("");
   if(todoTableMissing){
     $("todoAlerts").innerHTML=`<div class="alert alert-error" style="font-size:12px;">TODOテーブルがまだ作成されていません。Supabaseの SQL Editor で <b>setup-todos.sql</b> を実行してください。</div>`;
     $("todoList").innerHTML="";
@@ -867,7 +894,7 @@ function renderTodos(){
   }));
   document.querySelectorAll("[data-todo-case]").forEach(el=>el.addEventListener("click", ()=>{
     const cid=el.dataset.todoCase;
-    dashboardCaseFilter={label:`TODOの案件`, includeArchived:true, predicate:(c)=>String(c.id)===String(cid)};
+    dashboardCaseFilter={label:`TODOの案件`, includeClosed:true, predicate:(c)=>String(c.id)===String(cid)};
     switchTab("cases");
   }));
 }
@@ -881,7 +908,7 @@ function openTodoEdit(id){
     +master.members.map(m=>`<option ${m===t.assignee?"selected":""}>${esc(m)}</option>`).join("");
   $("tfDue").value=t.due_date||"";
   $("tfCase").innerHTML=`<option value="">(案件と紐付けない)</option>`
-    +cases.filter(c=>!c.archived||String(c.id)===String(t.case_id))
+    +cases.filter(c=>isOpenCase(c)||String(c.id)===String(t.case_id))
       .map(c=>`<option value="${c.id}" ${String(c.id)===String(t.case_id)?"selected":""}>${esc(c.name)}${c.customerName?`(${esc(c.customerName)})`:""}</option>`).join("");
   $("tfDone").checked=!!t.done;
   $("todoModal").classList.add("show");
@@ -1454,7 +1481,7 @@ function catColor(cat){ const i=master.categories.indexOf(cat); return i>=0? CAT
 /* 実施日ベースの進捗アラート。実施日を過ぎても完了していない案件を「超過」として警告する
    (v3.6で納期欄を廃止したため、旧dueDateベースから実施日ベースに変更) */
 function dueInfo(cs){
-  if(!cs.execDate||cs.archived||cs.status==="完了") return null;
+  if(!cs.execDate||isClosedCase(cs)) return null;
   const today=new Date(); today.setHours(0,0,0,0);
   const due=new Date(cs.execDate+"T00:00:00");
   const diff=Math.round((due-today)/86400000);
@@ -1464,7 +1491,7 @@ function dueInfo(cs){
 }
 /* 次回アクションの期日チェック(納期のdueInfoと同型) */
 function actionInfo(cs){
-  if(!cs.nextAction||!cs.nextActionDate||cs.archived) return null;
+  if(!cs.nextAction||!cs.nextActionDate||isClosedCase(cs)) return null;
   const today=new Date(); today.setHours(0,0,0,0);
   const due=new Date(cs.nextActionDate+"T00:00:00");
   const diff=Math.round((due-today)/86400000);
@@ -1523,7 +1550,7 @@ async function loadMfReviewQueue(){
 function mfCandidateCases(){
   const cutoff=new Date(); cutoff.setMonth(cutoff.getMonth()-2);
   return cases.filter(c=>{
-    if(c.archived) return false;
+    if(isLostCase(c)) return false;
     if(c.status!=="完了") return true;
     const base=orderBaseDate(c);
     if(!base) return true;
@@ -1787,7 +1814,7 @@ function renderCustomerDetail(){
         ${list.map(x=>`
           <tr data-cust-case="${x.id}" style="cursor:pointer;" title="クリックすると案件の編集画面を開きます">
             <td style="white-space:nowrap;">${esc(orderBaseDate(x)||"")}</td>
-            <td style="font-weight:700; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px;">${esc(x.name)}${x.archived?'<span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3; color:#6B7A87; margin-left:4px;">完了</span>':""}</td>
+            <td style="font-weight:700; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px;">${esc(x.name)}${isClosedCase(x)?`<span class="chip" style="background:${isLostCase(x)?"#FDECEC":"#EEF1F3"}; border:1px solid ${isLostCase(x)?"#E5A0A0":"#DCE0E3"}; color:${isLostCase(x)?"#9B2C2C":"#6B7A87"}; margin-left:4px;">${esc(x.status)}</span>`:""}</td>
             <td>${esc(x.status)}</td>
             <td style="text-align:right;">${fmtYen(x.quoteAmount)||"―"}</td>
             <td style="text-align:right; font-weight:700;">${fmtYen(x.orderAmount)||"―"}</td>
@@ -1911,7 +1938,7 @@ function renderCases(){
   const sel=$("filterOwner");
   const cur=sel.value||"全員";
   sel.innerHTML=`<option>全員</option>`+master.members.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
-  const showArchived=$("showArchived").checked || !!(dashboardCaseFilter&&dashboardCaseFilter.includeArchived);
+  const showClosed=$("showArchived").checked || !!(dashboardCaseFilter&&dashboardCaseFilter.includeClosed);
   renderDueAlerts();
   renderMfReviewQueue();
   if(dashboardCaseFilter){
@@ -1921,7 +1948,7 @@ function renderCases(){
     $("dashFilterBanner").innerHTML="";
   }
   const list=cases
-    .filter(c=>showArchived? true : !c.archived)
+    .filter(c=>showClosed? true : isOpenCase(c))
     /* 担当での絞り込みは営業担当・フライト担当(主/副①/副②)を横断して検索する */
     .filter(c=>sel.value==="全員"? true : (caseOwnerName(c)===sel.value || flightAssignments(c).some(f=>f.name===sel.value)))
     .filter(c=>dashboardCaseFilter? dashboardCaseFilter.predicate(c) : true)
@@ -1937,12 +1964,12 @@ function renderCases(){
       const a=actionInfo(cs);
       const actionChip=cs.nextAction? `<span class="chip" style="${a&&a.over?"background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;":"background:#EEF3FA; border:1px solid #BCD3E8; color:#2B6CB0;"}">次: ${esc(cs.nextAction)}${cs.nextActionDate?`(${esc(cs.nextActionDate)}${a&&a.over?"・期限超過":""})`:""}</span>`:"";
       return `
-      <div class="card" style="border-left:4px solid ${cs.lost?"#9B2C2C":catColor(cs.category)}; opacity:${cs.archived?0.55:1};">
+      <div class="card" style="border-left:4px solid ${isLostCase(cs)?"#9B2C2C":catColor(cs.category)}; opacity:${isClosedCase(cs)?0.6:1};">
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <span class="chip" style="background:${catColor(cs.category)}18; border:1px solid ${catColor(cs.category)}44; color:${catColor(cs.category)};">${esc(cs.category)}</span>
           <span style="font-size:14.5px; font-weight:800;">${esc(cs.name)}</span>
-          <span class="chip" style="background:#17242F14; border:1px solid #17242F33;">${esc(cs.status)}</span>
-          ${cs.lost?`<span class="chip" style="background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;">失注${cs.lostReason?`:${esc(cs.lostReason)}`:""}</span>`:""}
+          <span class="chip" style="${isLostCase(cs)?"background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;":isDoneCase(cs)?"background:#EEF3F0; border:1px solid #D5E0DA; color:#2F6A4F;":"background:#17242F14; border:1px solid #17242F33;"}">${esc(cs.status)}</span>
+          ${isLostCase(cs)&&cs.lostReason?`<span class="chip" style="background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;">理由:${esc(cs.lostReason)}</span>`:""}
           ${dueChip}
           ${actionChip}
           <span style="margin-left:auto; font-size:12px; color:#3D4F5E;">${esc(caseOwnerName(cs)||"担当未設定")}｜${cs.manday||0}人日</span>
@@ -1956,8 +1983,10 @@ function renderCases(){
           <button class="btn btn-secondary btn-small" data-case-cm="${cs.id}">コメント${commentCounts[cs.id]?`(${commentCounts[cs.id]})`:""}</button>
           <button class="btn btn-secondary btn-small" data-case-file="${cs.id}">ファイル${fileCounts[cs.id]?`(${fileCounts[cs.id]})`:""}</button>
           <button class="btn btn-secondary btn-small" data-case-his="${cs.id}">履歴</button>
-          ${!cs.archived && !(parseFloat(cs.orderAmount)>0)? `<button class="btn btn-secondary btn-small btn-danger" data-case-lost="${cs.id}">失注</button>`:""}
-          <button class="btn btn-secondary btn-small btn-danger" data-case-ar="${cs.id}">${cs.archived?"戻す":"完了"}</button>
+          ${isClosedCase(cs)
+            ? `<button class="btn btn-secondary btn-small" data-case-reopen="${cs.id}">進行中に戻す</button>`
+            : `<button class="btn btn-secondary btn-small btn-danger" data-case-done="${cs.id}">完了</button>
+               <button class="btn btn-secondary btn-small btn-danger" data-case-lost="${cs.id}">失注</button>`}
           <button class="btn btn-secondary btn-small btn-danger" data-case-del="${cs.id}" style="margin-left:auto;">削除</button>
         </div>
       </div>`;}).join("");
@@ -1965,18 +1994,44 @@ function renderCases(){
   document.querySelectorAll("[data-case-cm]").forEach(b=>b.addEventListener("click",()=>openComments(+b.dataset.caseCm)));
   document.querySelectorAll("[data-case-file]").forEach(b=>b.addEventListener("click",()=>openFiles(+b.dataset.caseFile)));
   document.querySelectorAll("[data-case-his]").forEach(b=>b.addEventListener("click",()=>openHistory(+b.dataset.caseHis)));
-  document.querySelectorAll("[data-case-ar]").forEach(b=>b.addEventListener("click",async ()=>{
-    const c=cases.find(x=>x.id==+b.dataset.caseAr); if(!c) return;
-    c.archived=!c.archived; c.updatedAt=Date.now();
-    let action=c.archived?"完了":"再開";
-    if(!c.archived && c.lost){ c.lost=false; c.lostReason=""; c.lostAt=""; action="再開(失注取消)"; }
-    await saveCaseRow(c);
-    await logAction(c.archived?"案件完了":"案件再開", c.name);
-    await logCaseHistory(c.id, action, "");
-    renderCases(); setStatus("保存しました");
-  }));
+  document.querySelectorAll("[data-case-done]").forEach(b=>b.addEventListener("click",()=>closeCase(+b.dataset.caseDone)));
+  document.querySelectorAll("[data-case-reopen]").forEach(b=>b.addEventListener("click",()=>reopenCase(+b.dataset.caseReopen)));
   document.querySelectorAll("[data-case-lost]").forEach(b=>b.addEventListener("click",()=>openLostModal(+b.dataset.caseLost)));
   document.querySelectorAll("[data-case-del]").forEach(b=>b.addEventListener("click",()=>deleteCase(+b.dataset.caseDel)));
+}
+/* ---------- 案件の終了・再開(進捗ステータスで管理) ----------
+   「完了」「失注」はどちらも進捗ステータスを変えるだけ。アーカイブは廃止したので、
+   案件を消したいときは「削除」を使う。元のステータスはprevStatusに覚えておき、
+   「進行中に戻す」で復帰できるようにする。 */
+async function closeCase(id){
+  const c=cases.find(x=>x.id===id); if(!c) return;
+  if(isOpenCase(c)) c.prevStatus=c.status;
+  const old=c.status;
+  c.status=DONE_STATUS; c.updatedAt=Date.now();
+  await saveCaseRow(c);
+  await logCaseHistory(c.id, "ステータス変更", `${old} → ${DONE_STATUS}`);
+  await logAction("案件完了", c.name);
+  refreshCaseViews(); setStatus("完了にしました");
+}
+async function reopenCase(id){
+  const c=cases.find(x=>x.id===id); if(!c) return;
+  const old=c.status;
+  const back=(c.prevStatus && c.prevStatus!==DONE_STATUS && c.prevStatus!==LOST_STATUS && master.statuses.includes(c.prevStatus))
+    ? c.prevStatus : (master.statuses.find(s=>s!==DONE_STATUS&&s!==LOST_STATUS)||master.statuses[0]);
+  const wasLost=isLostCase(c);
+  c.status=back; delete c.prevStatus;
+  if(wasLost){ c.lostReason=""; c.lostAt=""; }
+  c.updatedAt=Date.now();
+  await saveCaseRow(c);
+  await logCaseHistory(c.id, wasLost?"失注を取消":"ステータス変更", `${old} → ${back}`);
+  await logAction("案件再開", c.name);
+  refreshCaseViews(); setStatus("進行中に戻しました");
+}
+/* 案件の状態変更は複数の画面から行うので、開いている画面を描き直す */
+function refreshCaseViews(){
+  if(currentTab==="kanban") renderKanban();
+  else if(currentTab==="customers") renderCustomers();
+  else renderCases();
 }
 /* ---------- 失注処理 ---------- */
 const LOST_REASONS=["価格","時期・延期","他社に決定","自然消滅","その他"];
@@ -1993,15 +2048,16 @@ async function confirmLost(){
   const c=cases.find(x=>x.id===lostCaseId); if(!c) return;
   const reason=$("lostReasonSel").value;
   const note=$("lostReasonNote").value.trim();
-  c.lost=true;
+  if(isOpenCase(c)) c.prevStatus=c.status;
+  const old=c.status;
   c.lostReason=note? `${reason}(${note})` : reason;
   c.lostAt=todayStr();
-  c.archived=true; c.updatedAt=Date.now();
+  c.status=LOST_STATUS; c.updatedAt=Date.now();
   await saveCaseRow(c);
-  await logCaseHistory(c.id, "失注", c.lostReason);
+  await logCaseHistory(c.id, "失注", `${old} → ${LOST_STATUS}(${c.lostReason})`);
   await logAction("案件失注", `${c.name}:${c.lostReason}`);
   $("lostModal").classList.remove("show");
-  renderCases(); setStatus("失注として記録しました");
+  refreshCaseViews(); setStatus("失注として記録しました");
 }
 /* 案件を完全に削除する。復元できないため、関連データの件数を示したうえで
    案件名の入力による確認を求める。コメント・履歴・ファイル(Storage含む)・
@@ -2044,7 +2100,7 @@ async function deleteCase(id){
 function openCase(id, prefill){
   editingCase = id==null
     ? {id:null, salesOwner:me, flightOwner:"", flightRatio1:"", flightOwner2:"", flightRatio2:"", flightOwner3:"", flightRatio3:"",
-       category:master.categories[0], name:"", status:master.statuses[0], manday:"", weeklyPlans:[], note:"", archived:false,
+       category:master.categories[0], name:"", status:master.statuses[0], manday:"", weeklyPlans:[], note:"",
        customerId:"", customerName:"", quoteAmount:"", quoteDate:"", orderAmount:"", orderDate:"", billingStatus:BILLING_STATUSES[0], execDate:"", paymentDate:"", nextAction:"", nextActionDate:"", ...(prefill||{})}
     : structuredClone(cases.find(x=>x.id===id));
   $("caseModalTitle").textContent=editingCase.id? "案件を編集" : "案件を追加";
@@ -2303,11 +2359,10 @@ function renderKanban(){
   const sel=$("kanbanFilterOwner");
   const cur=sel.value||"全員";
   sel.innerHTML=`<option>全員</option>`+master.members.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
-  /* 「完了」ボタンでアーカイブした案件は既定では出さない(案件管理と同じ挙動)。
-     チェックを入れると、それぞれのステータスの列に薄く表示する */
-  const showArchived=$("kanbanShowArchived").checked;
+  /* アーカイブは廃止したので、全案件をそれぞれのステータス列に表示する
+     (「完了」「失注」もステータスなので、専用の列に並ぶ) */
   /* 案件管理と同じく、営業担当・フライト担当(主/副①/副②)を横断して絞り込む */
-  const active=cases.filter(c=>showArchived? true : !c.archived)
+  const active=cases
     .filter(c=>sel.value==="全員"? true : (caseOwnerName(c)===sel.value || flightAssignments(c).some(f=>f.name===sel.value)));
   $("kanbanBoard").innerHTML=master.statuses.map((st,si)=>{
     const items=active.filter(c=>c.status===st);
@@ -2320,35 +2375,25 @@ function renderKanban(){
         ${items.length===0? `<div style="color:#B0B7BD; font-size:11.5px; text-align:center; padding:10px 0;">なし</div>` : items.map(c=>{
           const d=dueInfo(c);
           return `
-          <div style="border:1px solid #DCE0E3; border-left:4px solid ${c.lost?"#9B2C2C":catColor(c.category)}; border-radius:7px; padding:8px; ${c.archived?"opacity:0.55; background:#FAFAF9;":""}">
+          <div style="border:1px solid #DCE0E3; border-left:4px solid ${isLostCase(c)?"#9B2C2C":catColor(c.category)}; border-radius:7px; padding:8px; ${isClosedCase(c)?"opacity:0.6; background:#FAFAF9;":""}">
             <div style="font-size:12.5px; font-weight:800; line-height:1.4;">${esc(c.name)}
-              ${c.archived?'<span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3; color:#6B7A87; margin-left:4px;">完了</span>':""}
-              ${c.lost?'<span class="chip" style="background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C; margin-left:4px;">失注</span>':""}
+              ${isLostCase(c)&&c.lostReason?`<span class="chip" style="background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C; margin-left:4px;">${esc(c.lostReason)}</span>`:""}
             </div>
             <div style="font-size:11px; color:#3D4F5E; margin-top:3px;">${esc(caseOwnerName(c))}${c.customerName?`｜${esc(c.customerName)}`:""}</div>
             ${c.execDate? `<div style="font-size:11px; margin-top:2px; color:${d? (d.level==="over"?"#9B2C2C":"#7A5B00") : "#8A959E"}; font-weight:${d?800:400};">実施日 ${esc(c.execDate)}${d?`(${d.label})`:""}</div>`:""}
             <div style="display:flex; justify-content:space-between; margin-top:6px;">
-              ${c.archived
-                ? `<button class="btn btn-small btn-secondary" data-kb-unar="${c.id}">戻す</button>
+              ${isClosedCase(c)
+                ? `<button class="btn btn-small btn-secondary" data-kb-reopen="${c.id}">戻す</button>
                    <button class="btn btn-small btn-secondary" data-kb-edit="${c.id}">編集</button>`
                 : `<button class="btn btn-small btn-secondary" data-kb-move="${c.id}|-1" ${si===0?"disabled style='opacity:0.3;'":""}>◀</button>
                    <button class="btn btn-small btn-secondary" data-kb-edit="${c.id}">編集</button>
-                   <button class="btn btn-small btn-secondary" data-kb-move="${c.id}|1" ${si===master.statuses.length-1?"disabled style='opacity:0.3;'":""}>▶</button>`}
+                   <button class="btn btn-small btn-secondary" data-kb-move="${c.id}|1" ${si>=master.statuses.length-1?"disabled style='opacity:0.3;'":""}>▶</button>`}
             </div>
           </div>`;}).join("")}
       </div>
     </div>`;}).join("");
-  /* アーカイブ済のカードは進捗を動かせないので、代わりに「戻す」を出す(案件管理と同じ挙動) */
-  document.querySelectorAll("[data-kb-unar]").forEach(b=>b.addEventListener("click",async ()=>{
-    const c=cases.find(x=>x.id==+b.dataset.kbUnar); if(!c) return;
-    c.archived=false; c.updatedAt=Date.now();
-    let action="再開";
-    if(c.lost){ c.lost=false; c.lostReason=""; c.lostAt=""; action="再開(失注取消)"; }
-    await saveCaseRow(c);
-    await logAction("案件再開", c.name);
-    await logCaseHistory(c.id, action, "");
-    renderKanban(); setStatus("保存しました");
-  }));
+  /* 完了・失注のカードは◀▶で動かさず、「戻す」で進行中に復帰させる */
+  document.querySelectorAll("[data-kb-reopen]").forEach(b=>b.addEventListener("click",()=>reopenCase(+b.dataset.kbReopen)));
   document.querySelectorAll("[data-kb-move]").forEach(b=>b.addEventListener("click",async ()=>{
     const [id,dir]=b.dataset.kbMove.split("|");
     const c=cases.find(x=>x.id==+id); if(!c) return;
@@ -2395,7 +2440,7 @@ function orderBaseDate(c){ return c.orderDate || ""; }
 /* ---------- ダッシュボード ---------- */
 let dashFY = null;
 function renderDashboard(){
-  const active=cases.filter(c=>!c.archived);
+  const active=cases.filter(isOpenCase);
   const num=(v)=>parseFloat(v)||0;
   const sum=(arr,f)=>arr.reduce((a,c)=>a+f(c),0);
   const orderTotal=sum(active,c=>num(c.orderAmount));
@@ -2496,7 +2541,7 @@ function renderDashboard(){
       fy,
       orderCount:ordered.length,
       orderAmt:sum(ordered,c=>num(c.orderAmount)),
-      quoteAmt:sum(cases.filter(c=>!c.archived && num(c.orderAmount)===0 && num(c.quoteAmount)>0 && fyOf(orderBaseDate(c))===fy), c=>num(c.quoteAmount)),
+      quoteAmt:sum(cases.filter(c=>isOpenCase(c) && num(c.orderAmount)===0 && num(c.quoteAmount)>0 && fyOf(orderBaseDate(c))===fy), c=>num(c.quoteAmount)),
       payAmt:sum(pays,c=>num(c.orderAmount)),
       paidAmt:sum(pays.filter(c=>c.billingStatus==="入金済"),c=>num(c.orderAmount)),
       noPayDate:sum(ordered.filter(c=>!c.paymentDate),c=>num(c.orderAmount)),
@@ -2513,7 +2558,7 @@ function renderDashboard(){
   const months=fyMonths(dashFY);
   const monthRows=months.map(mo=>{
     const ordered=cases.filter(c=>num(c.orderAmount)>0 && (orderBaseDate(c)||"").startsWith(mo.ym));
-    const quoted=cases.filter(c=>!c.archived && num(c.orderAmount)===0 && num(c.quoteAmount)>0 && (orderBaseDate(c)||"").startsWith(mo.ym));
+    const quoted=cases.filter(c=>isOpenCase(c) && num(c.orderAmount)===0 && num(c.quoteAmount)>0 && (orderBaseDate(c)||"").startsWith(mo.ym));
     const pays=cases.filter(c=>num(c.orderAmount)>0 && (c.paymentDate||"").startsWith(mo.ym));
     const payAmt=sum(pays,c=>num(c.orderAmount));
     const paidAmt=sum(pays.filter(c=>c.billingStatus==="入金済"),c=>num(c.orderAmount));
@@ -2523,7 +2568,7 @@ function renderDashboard(){
   /* 受注日・入金予定日のどちらも空の案件はどの月にも計上できないため、
      7月の上に「日付未指定」行を作ってまとめて表示する(期の合計には含めない) */
   const undatedOrders=cases.filter(c=>num(c.orderAmount)>0 && !orderBaseDate(c));
-  const undatedQuotes=cases.filter(c=>!c.archived && num(c.orderAmount)===0 && num(c.quoteAmount)>0 && !orderBaseDate(c));
+  const undatedQuotes=cases.filter(c=>isOpenCase(c) && num(c.orderAmount)===0 && num(c.quoteAmount)>0 && !orderBaseDate(c));
   const undatedPays=cases.filter(c=>num(c.orderAmount)>0 && !c.paymentDate);
   const undated={
     orderCount:undatedOrders.length,
@@ -2647,8 +2692,8 @@ function renderDashboard(){
 
   /* 受注前パイプライン(成約率・失注分析)。全期間ベース */
   const wonCases=cases.filter(c=>num(c.orderAmount)>0);
-  const lostCases=cases.filter(c=>c.lost);
-  const pipelineCases=cases.filter(c=>!c.archived && !c.lost && num(c.orderAmount)===0 && num(c.quoteAmount)>0);
+  const lostCases=cases.filter(isLostCase);
+  const pipelineCases=cases.filter(c=>isOpenCase(c) && num(c.orderAmount)===0 && num(c.quoteAmount)>0);
   const closedTotal=wonCases.length+lostCases.length;
   const winRate=closedTotal? Math.round(wonCases.length/closedTotal*100) : null;
   const lostReasonRows=(()=>{
@@ -2717,7 +2762,7 @@ function renderDashboard(){
     const f=barPredicates[el.dataset.dashBar];
     if(!f) return;
     /* 完了済も集計に含めているので、一覧にも同じ範囲を出す */
-    dashboardCaseFilter={label:f.label, includeArchived:true, predicate:f.predicate};
+    dashboardCaseFilter={label:f.label, includeClosed:true, predicate:f.predicate};
     switchTab("cases");
   }));
   const undatedEl=document.querySelector("[data-dash-undated]");
@@ -2725,7 +2770,7 @@ function renderDashboard(){
     if(!undated.orderCount) return;
     dashboardCaseFilter={
       label:"受注日が未入力の受注案件",
-      includeArchived:true,
+      includeClosed:true,
       predicate:(c)=> num(c.orderAmount)>0 && !orderBaseDate(c),
     };
     switchTab("cases");
@@ -2736,7 +2781,7 @@ function renderDashboard(){
     if(!mo || !mo.orderCount) return;
     dashboardCaseFilter={
       label:`受注:${mo.year}年${mo.label}`,
-      includeArchived:true, /* 金額集計に完了案件を含めているので、一覧にも同じ範囲を出す */
+      includeClosed:true, /* 金額集計に完了案件を含めているので、一覧にも同じ範囲を出す */
       predicate:(c)=> num(c.orderAmount)>0 && (orderBaseDate(c)||"").startsWith(ym),
     };
     switchTab("cases");
@@ -2747,7 +2792,7 @@ function renderDashboard(){
     if(!r.orderCount) return;
     dashboardCaseFilter={
       label:`受注:${fyLabel(fy)}`,
-      includeArchived:true, /* 金額集計に完了案件を含めているので、一覧にも同じ範囲を出す */
+      includeClosed:true, /* 金額集計に完了案件を含めているので、一覧にも同じ範囲を出す */
       predicate:(c)=> num(c.orderAmount)>0 && fyOf(orderBaseDate(c))===fy,
     };
     switchTab("cases");
@@ -2764,8 +2809,8 @@ function renderDashboard(){
     const reason=el.dataset.dashLost;
     dashboardCaseFilter={
       label:`失注:${reason}`,
-      includeArchived:true,
-      predicate:(c)=> c.lost && String(c.lostReason||"理由未記録").split("(")[0]===reason,
+      includeClosed:true,
+      predicate:(c)=> isLostCase(c) && String(c.lostReason||"理由未記録").split("(")[0]===reason,
     };
     switchTab("cases");
   }));
@@ -3050,7 +3095,7 @@ async function loadChannelsForTeam(){
 }
 /* ---------- 会議モード ---------- */
 function busyColor(level){ const i=master.busyLevels.indexOf(level); return i>=0? BUSY_PALETTE[i%BUSY_PALETTE.length] : "#B0B7BD"; }
-function mandaySum(m){ return cases.filter(c=>!c.archived&&caseOwnerName(c)===m).reduce((a,c)=>a+(parseFloat(c.manday)||0),0); }
+function mandaySum(m){ return cases.filter(c=>isOpenCase(c)&&caseOwnerName(c)===m).reduce((a,c)=>a+(parseFloat(c.manday)||0),0); }
 let prevWeekDecisions="";
 async function loadPrevWeekDecisions(){
   const prev=new Date(monday); prev.setDate(prev.getDate()-7);
@@ -3120,7 +3165,7 @@ function renderMeeting(){
     })).filter(s=>s.text);
     const myTodos=todos.filter(t=>!t.done && t.assignee===m)
       .sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")));
-    const casePlans=cases.filter(c=>!c.archived&&caseOwnerName(c)===m).map(c=>({
+    const casePlans=cases.filter(c=>isOpenCase(c)&&caseOwnerName(c)===m).map(c=>({
       name:c.name,
       customerName:c.customerName||"顧客未設定",
       text:(c.weeklyPlans||[]).find(p=>p.weekKey===curKey)?.text||"",
@@ -3265,7 +3310,8 @@ function renderReport(){
      ②進捗ステータスが進んでいる順(マスターの並びで後ろ=数字が大きい方が上) ③更新が新しい順 */
   const weekStartMs=monday.getTime();
   const stIdx=(c)=>master.statuses.indexOf(c.status);
-  const activeCases=cases.filter(c=>!c.archived).sort((a,b)=>{
+  /* 失注は除き、進行中+今週動きがあった案件(完了含む)を対象にする */
+  const activeCases=cases.filter(c=>!isLostCase(c) && (isOpenCase(c) || (c.updatedAt||0)>=weekStartMs)).sort((a,b)=>{
     const aw=(a.updatedAt||0)>=weekStartMs?1:0, bw=(b.updatedAt||0)>=weekStartMs?1:0;
     if(aw!==bw) return bw-aw;
     const sd=stIdx(b)-stIdx(a);
@@ -3321,7 +3367,7 @@ function renderReport(){
         return `<tr style="background:${isMax?"#FDECEC":""};">
           <td style="${td}">${esc(m)}</td>
           <td style="${td} text-align:center;">${mandaySum(m).toFixed(1)}</td>
-          <td style="${td} text-align:center;">${cases.filter(c=>!c.archived&&caseOwnerName(c)===m).length}</td>
+          <td style="${td} text-align:center;">${cases.filter(c=>isOpenCase(c)&&caseOwnerName(c)===m).length}</td>
           <td style="${td} font-weight:700;">${esc(week.busy[m]||"―")}</td>
           <td style="${td}">${esc(week.helpNeed[m]||"―")}</td></tr>`;
       }).join("")}
@@ -3656,7 +3702,6 @@ document.addEventListener("DOMContentLoaded", ()=>{
   $("todoShowDone").addEventListener("change", renderTodos);
   $("boardAnnShowRead").addEventListener("change", renderBoardAnnouncements);
   $("kanbanFilterOwner").addEventListener("change", renderKanban);
-  $("kanbanShowArchived").addEventListener("change", renderKanban);
   $("btnIcs").addEventListener("click", ()=>$("icsFile").click());
   $("btnCalendarImport").addEventListener("click", importCalendarWeek);
   $("btnGoogleCalendarImport").addEventListener("click", importGoogleCalendarWeek);
