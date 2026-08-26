@@ -398,6 +398,7 @@
     <h3 class="modal-title" id="lostModalTitle"></h3>
     <label style="font-size:12px; font-weight:700;">失注理由<select id="lostReasonSel" class="w100" style="margin-top:4px;"></select></label>
     <label style="font-size:12px; font-weight:700; display:block; margin-top:10px;">補足(任意)<input type="text" id="lostReasonNote" class="w100" placeholder="例:予算が合わず○○社に" style="margin-top:4px;"></label>
+    <div id="lostAmountWarn"></div>
     <div style="font-size:11.5px; color:#6B7A87; margin-top:8px;">失注にすると案件はアーカイブされます(「完了済も表示」で確認可能。「戻す」で失注を取り消せます)。理由は成約率・失注分析に使われます。</div>
     <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end;">
       <button class="btn btn-secondary" id="btnLostCancel">キャンセル</button>
@@ -610,6 +611,9 @@ function isDoneCase(c){ return c.status===DONE_STATUS; }
 function isLostCase(c){ return c.status===LOST_STATUS; }
 function isClosedCase(c){ return isDoneCase(c)||isLostCase(c); }
 function isOpenCase(c){ return !isClosedCase(c); }
+/* 受注として数える案件。受注後に失注になった案件は、受注額が入っていても
+   受注・売上・成約率のいずれにもカウントしない(集計はすべてこの判定を使う) */
+function isOrderedCase(c){ return !isLostCase(c) && (parseFloat(c.orderAmount)||0)>0; }
 /* 表記上の担当は営業担当。旧「担当」しか入っていない案件のための後方互換 */
 function caseOwnerName(c){ return c.salesOwner || c.owner || ""; }
 /* フライト担当を [{name, ratio}] で返す(主担当・副担当①・副担当②のうち氏名が入っているものだけ) */
@@ -1688,11 +1692,12 @@ function casesOfCustomer(cust){
 function custStats(cust){
   const list=casesOfCustomer(cust);
   const num=(v)=>parseFloat(v)||0;
-  const ordered=list.filter(c=>num(c.orderAmount)>0);
+  const ordered=list.filter(isOrderedCase);
   const total=ordered.reduce((a,c)=>a+num(c.orderAmount),0);
   const fyTotal=ordered.filter(c=>fyOf(orderBaseDate(c))===currentFY()).reduce((a,c)=>a+num(c.orderAmount),0);
+  /* 最終取引日は実際に受注した案件から求める(失注案件は取引ではないので含めない) */
   let last="";
-  list.forEach(c=>{ [orderBaseDate(c), c.paymentDate].forEach(d=>{ if(d && d>last) last=d; }); });
+  ordered.forEach(c=>{ [orderBaseDate(c), c.paymentDate].forEach(d=>{ if(d && d>last) last=d; }); });
   const dormant = total>0 && last && (Date.now()-new Date(last+"T00:00:00").getTime()) > DORMANT_DAYS*86400000;
   return {count:list.length, total, fyTotal, last, dormant};
 }
@@ -1734,9 +1739,9 @@ function renderCustomerDetail(){
   const list=casesOfCustomer(c).sort((a,b)=>String(orderBaseDate(b)||"").localeCompare(String(orderBaseDate(a)||"")));
   const num=(v)=>parseFloat(v)||0;
   const fySet=new Set();
-  list.forEach(x=>{ const f=fyOf(orderBaseDate(x)); if(f!=null && num(x.orderAmount)>0) fySet.add(f); });
+  list.forEach(x=>{ const f=fyOf(orderBaseDate(x)); if(f!=null && isOrderedCase(x)) fySet.add(f); });
   const fyRows=[...fySet].sort((a,b)=>b-a).map(fy=>{
-    const inFy=list.filter(x=>num(x.orderAmount)>0 && fyOf(orderBaseDate(x))===fy);
+    const inFy=list.filter(x=>isOrderedCase(x) && fyOf(orderBaseDate(x))===fy);
     return {fy, count:inFy.length, total:inFy.reduce((a,x)=>a+num(x.orderAmount),0), paid:inFy.filter(x=>x.billingStatus==="入金済").reduce((a,x)=>a+num(x.orderAmount),0)};
   });
   const field=(label,id,value,ph)=>`<label style="font-size:12px; font-weight:700;">${label}<input type="text" id="${id}" class="w100" value="${esc(value||"")}" placeholder="${ph||""}" style="margin-top:4px;"></label>`;
@@ -2042,6 +2047,10 @@ function openLostModal(caseId){
   $("lostModalTitle").textContent=`失注として終了:${c.name}`;
   $("lostReasonSel").innerHTML=LOST_REASONS.map(r=>`<option>${esc(r)}</option>`).join("");
   $("lostReasonNote").value="";
+  /* 受注額が入っている案件を失注にすると、その分が受注・売上から外れるので先に知らせる */
+  $("lostAmountWarn").innerHTML = (parseFloat(c.orderAmount)||0)>0
+    ? `<div class="alert alert-warning" style="font-size:12px; margin:8px 0 0;">この案件には受注額 <b>${fmtYen(c.orderAmount)}</b> が入っています。失注にすると、ダッシュボードの受注額・売上・成約率から除外されます。</div>`
+    : "";
   $("lostModal").classList.add("show");
 }
 async function confirmLost(){
@@ -2445,9 +2454,9 @@ function renderDashboard(){
   const sum=(arr,f)=>arr.reduce((a,c)=>a+f(c),0);
   const orderTotal=sum(active,c=>num(c.orderAmount));
   const quoteTotal=sum(active,c=>num(c.quoteAmount));
-  const unbilled=sum(active.filter(c=>num(c.orderAmount)>0&&(!c.billingStatus||c.billingStatus==="未請求")),c=>num(c.orderAmount));
-  const billed=sum(active.filter(c=>c.billingStatus==="請求済"),c=>num(c.orderAmount));
-  const paid=sum(cases.filter(c=>c.billingStatus==="入金済"),c=>num(c.orderAmount));
+  const unbilled=sum(active.filter(c=>isOrderedCase(c)&&(!c.billingStatus||c.billingStatus==="未請求")),c=>num(c.orderAmount));
+  const billed=sum(cases.filter(c=>isOrderedCase(c)&&c.billingStatus==="請求済"),c=>num(c.orderAmount));
+  const paid=sum(cases.filter(c=>isOrderedCase(c)&&c.billingStatus==="入金済"),c=>num(c.orderAmount));
   const ym=new Date(); const thisMonth=`${ym.getFullYear()}-${String(ym.getMonth()+1).padStart(2,"0")}`;
   const monthExec=cases.filter(c=>(c.execDate||"").startsWith(thisMonth));
   const kpi=(label,val,sub)=>`
@@ -2492,7 +2501,7 @@ function renderDashboard(){
   /* 分類別・営業担当別・フライト担当別は、期別サマリーの「受注件数」と必ず一致させる。
      = 受注額が確定(orderAmount>0)し、受注日が選択中の期に入っている案件。完了済も含む。
      (受注日が未入力の案件はどの期にも入らないため、月次表の「日付未指定」行に出る) */
-  const inFY=(c)=>num(c.orderAmount)>0 && fyOf(orderBaseDate(c))===dashFY;
+  const inFY=(c)=>isOrderedCase(c) && fyOf(orderBaseDate(c))===dashFY;
   const isOrdered=inFY;
   const ordered=cases.filter(inFY);
   const byCat=master.categories.map((cat,i)=>({
@@ -2535,8 +2544,8 @@ function renderDashboard(){
   const nowYm=`${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`;
 
   const fyStats=(fy)=>{
-    const ordered=cases.filter(c=>num(c.orderAmount)>0 && fyOf(orderBaseDate(c))===fy);
-    const pays=cases.filter(c=>num(c.orderAmount)>0 && fyOf(c.paymentDate)===fy);
+    const ordered=cases.filter(c=>isOrderedCase(c) && fyOf(orderBaseDate(c))===fy);
+    const pays=cases.filter(c=>isOrderedCase(c) && fyOf(c.paymentDate)===fy);
     return {
       fy,
       orderCount:ordered.length,
@@ -2557,9 +2566,9 @@ function renderDashboard(){
   };
   const months=fyMonths(dashFY);
   const monthRows=months.map(mo=>{
-    const ordered=cases.filter(c=>num(c.orderAmount)>0 && (orderBaseDate(c)||"").startsWith(mo.ym));
+    const ordered=cases.filter(c=>isOrderedCase(c) && (orderBaseDate(c)||"").startsWith(mo.ym));
     const quoted=cases.filter(c=>isOpenCase(c) && num(c.orderAmount)===0 && num(c.quoteAmount)>0 && (orderBaseDate(c)||"").startsWith(mo.ym));
-    const pays=cases.filter(c=>num(c.orderAmount)>0 && (c.paymentDate||"").startsWith(mo.ym));
+    const pays=cases.filter(c=>isOrderedCase(c) && (c.paymentDate||"").startsWith(mo.ym));
     const payAmt=sum(pays,c=>num(c.orderAmount));
     const paidAmt=sum(pays.filter(c=>c.billingStatus==="入金済"),c=>num(c.orderAmount));
     return {...mo, orderCount:ordered.length, orderAmt:sum(ordered,c=>num(c.orderAmount)),
@@ -2567,9 +2576,9 @@ function renderDashboard(){
   });
   /* 受注日・入金予定日のどちらも空の案件はどの月にも計上できないため、
      7月の上に「日付未指定」行を作ってまとめて表示する(期の合計には含めない) */
-  const undatedOrders=cases.filter(c=>num(c.orderAmount)>0 && !orderBaseDate(c));
+  const undatedOrders=cases.filter(c=>isOrderedCase(c) && !orderBaseDate(c));
   const undatedQuotes=cases.filter(c=>isOpenCase(c) && num(c.orderAmount)===0 && num(c.quoteAmount)>0 && !orderBaseDate(c));
-  const undatedPays=cases.filter(c=>num(c.orderAmount)>0 && !c.paymentDate);
+  const undatedPays=cases.filter(c=>isOrderedCase(c) && !c.paymentDate);
   const undated={
     orderCount:undatedOrders.length,
     orderAmt:sum(undatedOrders,c=>num(c.orderAmount)),
@@ -2679,7 +2688,7 @@ function renderDashboard(){
     return m? `id:${m.id}` : `name:${norm||"(顧客未設定)"}`;
   };
   const custGroups=new Map();
-  cases.filter(c=>num(c.orderAmount)>0).forEach(c=>{
+  cases.filter(isOrderedCase).forEach(c=>{
     const key=custGroupKey(c);
     const g=custGroups.get(key)||{key, label:"", count:0, amount:0};
     g.count++; g.amount+=num(c.orderAmount);
@@ -2691,7 +2700,7 @@ function renderDashboard(){
   const custRankMax=Math.max(1,...custRanking.map(r=>r.amount));
 
   /* 受注前パイプライン(成約率・失注分析)。全期間ベース */
-  const wonCases=cases.filter(c=>num(c.orderAmount)>0);
+  const wonCases=cases.filter(isOrderedCase);
   const lostCases=cases.filter(isLostCase);
   const pipelineCases=cases.filter(c=>isOpenCase(c) && num(c.orderAmount)===0 && num(c.quoteAmount)>0);
   const closedTotal=wonCases.length+lostCases.length;
@@ -2771,7 +2780,7 @@ function renderDashboard(){
     dashboardCaseFilter={
       label:"受注日が未入力の受注案件",
       includeClosed:true,
-      predicate:(c)=> num(c.orderAmount)>0 && !orderBaseDate(c),
+      predicate:(c)=> isOrderedCase(c) && !orderBaseDate(c),
     };
     switchTab("cases");
   });
@@ -2782,7 +2791,7 @@ function renderDashboard(){
     dashboardCaseFilter={
       label:`受注:${mo.year}年${mo.label}`,
       includeClosed:true, /* 金額集計に完了案件を含めているので、一覧にも同じ範囲を出す */
-      predicate:(c)=> num(c.orderAmount)>0 && (orderBaseDate(c)||"").startsWith(ym),
+      predicate:(c)=> isOrderedCase(c) && (orderBaseDate(c)||"").startsWith(ym),
     };
     switchTab("cases");
   }));
@@ -2793,7 +2802,7 @@ function renderDashboard(){
     dashboardCaseFilter={
       label:`受注:${fyLabel(fy)}`,
       includeClosed:true, /* 金額集計に完了案件を含めているので、一覧にも同じ範囲を出す */
-      predicate:(c)=> num(c.orderAmount)>0 && fyOf(orderBaseDate(c))===fy,
+      predicate:(c)=> isOrderedCase(c) && fyOf(orderBaseDate(c))===fy,
     };
     switchTab("cases");
   }));
@@ -3324,14 +3333,14 @@ function renderReport(){
   const num=(v)=>parseFloat(v)||0;
   const sum=(arr,f)=>arr.reduce((a,c)=>a+f(c),0);
   const d0=new Date(); const thisMonth=`${d0.getFullYear()}-${String(d0.getMonth()+1).padStart(2,"0")}`;
-  const moOrdered=cases.filter(c=>num(c.orderAmount)>0 && (orderBaseDate(c)||"").startsWith(thisMonth));
-  const moPays=cases.filter(c=>num(c.orderAmount)>0 && (c.paymentDate||"").startsWith(thisMonth));
+  const moOrdered=cases.filter(c=>isOrderedCase(c) && (orderBaseDate(c)||"").startsWith(thisMonth));
+  const moPays=cases.filter(c=>isOrderedCase(c) && (c.paymentDate||"").startsWith(thisMonth));
   const moPayAmt=sum(moPays,c=>num(c.orderAmount));
   const moPaidAmt=sum(moPays.filter(c=>c.billingStatus==="入金済"),c=>num(c.orderAmount));
-  const fyOrdered=cases.filter(c=>num(c.orderAmount)>0 && fyOf(orderBaseDate(c))===currentFY());
-  const fyPays=cases.filter(c=>num(c.orderAmount)>0 && fyOf(c.paymentDate)===currentFY());
+  const fyOrdered=cases.filter(c=>isOrderedCase(c) && fyOf(orderBaseDate(c))===currentFY());
+  const fyPays=cases.filter(c=>isOrderedCase(c) && fyOf(c.paymentDate)===currentFY());
   const fyPaidAmt=sum(fyPays.filter(c=>c.billingStatus==="入金済"),c=>num(c.orderAmount));
-  const unbilledAll=sum(cases.filter(c=>c.billingStatus==="請求済"),c=>num(c.orderAmount));
+  const unbilledAll=sum(cases.filter(c=>isOrderedCase(c)&&c.billingStatus==="請求済"),c=>num(c.orderAmount));
   const y=(v)=>fmtYen(v)||"¥0";
   const bizSummary=`
     <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">2. 経営数値サマリー</h2>
