@@ -41,6 +41,9 @@ robots.txt も同リポジトリのルートに置いてあり、検索エンジ
 ## 認証まわり
 - アプリ自体: **Supabase Auth(メールアドレス+パスワード)**。v3.12で「名前選択+共通パスワード」から移行した。
   - 表示名は`auth.users.raw_user_meta_data.display_name`が正。アプリ内の`me`はここから取る(未設定ならメールのローカル部)
+  - **ログインアカウントとマスターの担当名は「表示名の文字列一致」だけで紐付いている**。`display_name`と`master.members`の名前が1文字でも違うと、ログインはできるのに予定表の行・案件の担当・会議モードに出ない(エラーは出ない)ので注意
+  - **氏名は各所に文字列として保存されている**(`cases.data.salesOwner`、`weeks.data.schedule`のキー、`todos.assignee`、`nippo.author`、`audit_log.author`、`settings`の各種キーなど)。マスターで名前を変えても過去データは追随しないため、**改名・表記ゆれの統一には`rename-member.sql`を使う**(JSONBはテキストに変換して置換するのでキー側も値側もまとめて直る)
+  - 正しい氏名表記:**岩神星音**(「岩上」は誤り。v3.12で統一済み)
   - **全テーブルがRLS有効・authenticatedのみ許可**(`setup-auth.sql`)。anon keyだけではデータに触れない
   - Storageの`case-files`バケットも非公開+authenticatedのみに変更
   - アカウントの追加/パスワードリセットはSupabaseダッシュボード(Authentication → Users)で行う。アプリ内では名前だけを管理する
