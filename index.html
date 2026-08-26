@@ -187,7 +187,7 @@
         <label style="margin-left:auto; font-size:12px; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="boardAnnShowRead"> 確認済みも表示</label>
       </div>
       <div class="card">
-        <div style="font-size:11.5px; color:#6B7A87; margin-bottom:8px;">チェックを入れると既読になり、この欄から非表示になります(連絡事項タブではいつでも読み返せます)。</div>
+        <div style="font-size:11.5px; color:#6B7A87; margin-bottom:8px;">チェックを入れるとこの欄から非表示になります(連絡事項タブではいつでも読み返せます)。連絡事項の投稿は「連絡事項」タブから行います。</div>
         <div id="boardAnnList"></div>
       </div>
     </div>
@@ -748,18 +748,33 @@ function renderBoard(){
   $("calAutoToggle").checked=calAutoOn();
   renderBoardAnnouncements();
 }
-/* 週間ボードの連絡事項。チェックを入れると既読になり、この欄からは消える
-   (連絡事項タブでは引き続き全件読める) */
+/* 週間ボードの連絡事項。チェックを入れるとこの欄から消える(連絡事項タブでは全件読める)。
+   「非表示」は既読(reads)とは別管理にしている。投稿時に投稿者自身が既読になる仕様のため、
+   既読を流用すると自分の投稿が週間ボードに一度も出ないまま消えてしまうため。 */
+function annHiddenIds(){
+  const v=(settings.annHidden||{})[me];
+  return Array.isArray(v)? v.map(String) : [];
+}
+async function setAnnHidden(id, hidden){
+  const cur=new Set(annHiddenIds());
+  if(hidden) cur.add(String(id)); else cur.delete(String(id));
+  /* 既に消えた連絡事項のIDは持ち続けない */
+  const alive=new Set(announcements.map(a=>String(a.id)));
+  settings.annHidden=settings.annHidden||{};
+  settings.annHidden[me]=[...cur].filter(x=>alive.has(x));
+  await kvSet("settings", settings);
+}
 function renderBoardAnnouncements(){
-  const showRead=$("boardAnnShowRead").checked;
-  const list=announcements.filter(a=>showRead? true : !(a.reads||[]).includes(me));
+  const showAll=$("boardAnnShowRead").checked;
+  const hidden=new Set(annHiddenIds());
+  const list=announcements.filter(a=>showAll? true : !hidden.has(String(a.id)));
   $("boardAnnList").innerHTML = list.length===0
-    ? `<div style="color:#3D4F5E; font-size:13px;">${showRead?"連絡事項はまだありません。":"未確認の連絡事項はありません。"}</div>`
+    ? `<div style="color:#3D4F5E; font-size:13px;">${showAll?"連絡事項はまだありません。":"未確認の連絡事項はありません。"}</div>`
     : list.map(a=>{
-      const read=(a.reads||[]).includes(me);
+      const done=hidden.has(String(a.id));
       return `
-      <div class="todo-item ${read?"done":""}" style="align-items:flex-start;">
-        <input type="checkbox" data-bann="${a.id}" ${read?"checked":""} style="margin-top:3px;">
+      <div class="todo-item ${done?"done":""}" style="align-items:flex-start;">
+        <input type="checkbox" data-bann="${a.id}" ${done?"checked":""} style="margin-top:3px;">
         <div style="flex:1;">
           <div style="font-size:11px; color:#8A959E;">${esc(a.author)}・${fmtDT(a.created_at)}</div>
           <div style="white-space:pre-wrap; font-size:13px;">${esc(a.content)}</div>
@@ -768,12 +783,15 @@ function renderBoardAnnouncements(){
     }).join("");
   document.querySelectorAll("[data-bann]").forEach(c=>c.addEventListener("change", async ()=>{
     const a=announcements.find(x=>x.id==+c.dataset.bann); if(!a) return;
-    const reads=c.checked
-      ? Array.from(new Set([...(a.reads||[]), me]))
-      : (a.reads||[]).filter(r=>r!==me);
-    await sb.from("announcements").update({reads}).eq("id",a.id);
-    a.reads=reads;
-    renderBoardAnnouncements(); refreshFeedBadge();
+    await setAnnHidden(a.id, c.checked);
+    /* 確認したら既読にもする(連絡事項タブのバッジを消すため) */
+    if(c.checked && !(a.reads||[]).includes(me)){
+      const reads=Array.from(new Set([...(a.reads||[]), me]));
+      await sb.from("announcements").update({reads}).eq("id",a.id);
+      a.reads=reads;
+      refreshFeedBadge();
+    }
+    renderBoardAnnouncements();
   }));
 }
 
@@ -2756,6 +2774,9 @@ async function postAnnouncement(){
   $("annInput").value="";
   await logAction("連絡事項投稿", content.slice(0,40));
   await loadAnnouncements(); renderFeed(); refreshFeedBadge();
+  /* 週間ボードの連絡事項欄にも即座に反映する */
+  if($("boardAnnList")) renderBoardAnnouncements();
+  setStatus("投稿しました(週間ボードにも表示されます)");
 }
 function renderFeed(){
   $("annList").innerHTML = announcements.length===0
