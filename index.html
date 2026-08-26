@@ -93,8 +93,6 @@
 
     .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 70vh; text-align: center; }
     .login-box { max-width: 420px; width: 100%; }
-    .member-btn { width: 100%; padding: 13px; font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .member-btn.selected { border-color: #E8590C; background: #FFF0E6; font-weight: 800; }
 
     @media print {
       body * { visibility: hidden !important; }
@@ -155,11 +153,12 @@
           <div style="color:#E8590C; font-size:12px; letter-spacing:4px; font-weight:800; margin-bottom:6px;">SHIMIZUGUMI DRONE UNIT</div>
           <h1 style="font-size:34px; font-weight:900; margin:0 0 4px; letter-spacing:2px;">D-WOLF</h1>
         </div>
-        <div style="color:#3D4F5E; font-size:13px; margin-bottom:24px;">週次オペレーションボード｜名前を選んでパスワードを入力</div>
-        <div id="memberButtons"></div>
-        <input type="password" id="loginPw" class="w100" placeholder="共通パスワード" style="margin-top:12px; padding:11px;">
+        <div style="color:#3D4F5E; font-size:13px; margin-bottom:24px;">週次オペレーションボード｜社内アカウントでログイン</div>
+        <input type="email" id="loginEmail" class="w100" placeholder="メールアドレス(例: iida@d-wolf.jp)" autocomplete="username" style="padding:11px;">
+        <input type="password" id="loginPw" class="w100" placeholder="パスワード" autocomplete="current-password" style="margin-top:8px; padding:11px;">
         <button class="btn btn-primary w100" id="btnLogin" style="margin-top:10px; padding:12px;">ログイン</button>
         <div id="loginMsg" style="color:#B54747; font-size:12.5px; margin-top:10px;"></div>
+        <div style="color:#8A959E; font-size:11.5px; margin-top:14px; line-height:1.6;">パスワードが分からない場合は多々良さんまたは宮﨑までご連絡ください。</div>
       </div>
     </div>
 
@@ -168,6 +167,9 @@
       <div class="section-header">
         <span class="section-num">01</span><h2 class="section-title">週間スケジュール(月〜金)</h2>
         <div style="margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;">
+          <label style="font-size:11.5px; display:flex; align-items:center; gap:4px; white-space:nowrap;" title="どの人・どの共有カレンダーの欄に取り込むかを選びます">
+            取込先<select id="calTargetSelect" style="font-size:12px;"></select>
+          </label>
           <button class="btn btn-primary btn-small" id="btnCalendarImport">Outlookから自動取込</button>
           <button class="btn btn-secondary btn-small" id="btnCalendarPickOutlook" title="Outlookで取り込むカレンダーを選ぶ">対象カレンダー</button>
           <button class="btn btn-primary btn-small" id="btnGoogleCalendarImport">Googleカレンダーから自動取込</button>
@@ -457,7 +459,9 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 /* ===================================================== */
 
 const DEFAULT_MASTER = {
-  members: ["岩上星音", "飯田匡輝", "妙見修志", "多々良鮎"],
+  members: ["岩神星音", "飯田匡輝", "妙見修志", "多々良鮎"],
+  /* 予定表には出すが、案件の担当にはしない行(社長・共有カレンダー) */
+  calendarOnly: ["宮﨑隆司", "共通", "コプロスアリーナ"],
   manager: "多々良鮎",
   categories: ["教習", "機体販売", "点検", "ICT", "新規分野"],
   statuses: ["見積提出", "契約", "準備", "実施", "報告書作成", "請求書提出", "完了"],
@@ -487,7 +491,6 @@ let saveTimers = {};
 let editingCase = null;
 let commentCaseId = null;
 let fileCaseId = null;
-let selectedLoginName = null;
 const BILLING_STATUSES = ["未請求","請求済","入金済"];
 const fmtYen = (n)=>{ const v=parseFloat(n); return isNaN(v)||v===0? "" : "¥"+v.toLocaleString("ja-JP"); };
 
@@ -515,7 +518,7 @@ async function kvSet(k,v){ const {error}=await sb.from("kv").upsert({key:k, valu
 
 async function loadWeek(){
   const {data}=await sb.from("weeks").select("data").eq("week_key",fmtKey(monday)).maybeSingle();
-  week = ensureWeek(data? data.data : null, master.members);
+  week = ensureWeek(data? data.data : null, boardRows());
 }
 async function saveWeekNow(){
   const {error}=await sb.from("weeks").upsert({week_key:fmtKey(monday), data:week, updated_at:new Date().toISOString()});
@@ -524,7 +527,7 @@ async function saveWeekNow(){
 /* 表示中の週以外を読み書きするためのヘルパー(カレンダーの複数週取込・連携リセットで使う) */
 async function loadWeekByKey(key){
   const {data}=await sb.from("weeks").select("data").eq("week_key",key).maybeSingle();
-  return ensureWeek(data? data.data : null, master.members);
+  return ensureWeek(data? data.data : null, boardRows());
 }
 async function saveWeekByKey(key, w){
   const {error}=await sb.from("weeks").upsert({week_key:key, data:w, updated_at:new Date().toISOString()});
@@ -534,18 +537,19 @@ async function saveWeekByKey(key, w){
    週レコードは全員分が1つのJSONBに入っているため、読み込んだ内容をそのまま
    書き戻すと、その間に他メンバーが編集した分を消してしまう。
    保存直前に最新を読み直し、自分のスロットだけを差し替えることで巻き込みを防ぐ。 */
-async function updateWeekMine(key, mutate){
+async function updateWeekMine(key, mutate, slot){
+  const row = slot || me;
   const isCur = key===fmtKey(monday);
   const w = isCur ? week : await loadWeekByKey(key);
-  if(!Array.isArray(w.schedule[me])) w.schedule[me]=["","","","",""];
+  if(!Array.isArray(w.schedule[row])) w.schedule[row]=["","","","",""];
   w.calImported=w.calImported||{};
-  w.calImported[me]=w.calImported[me]||[];
-  const result=mutate(w) || {changed:false};
+  w.calImported[row]=w.calImported[row]||[];
+  const result=mutate(w, row) || {changed:false};
   if(!result.changed) return result;
   const latest=await loadWeekByKey(key);
-  latest.schedule[me]=w.schedule[me];
+  latest.schedule[row]=w.schedule[row];
   latest.calImported=latest.calImported||{};
-  latest.calImported[me]=w.calImported[me];
+  latest.calImported[row]=w.calImported[row];
   if(!await saveWeekByKey(key, latest)) throw new Error(`${key}週の保存に失敗しました。`);
   if(isCur){ week.schedule=latest.schedule; week.calImported=latest.calImported; }
   return result;
@@ -604,6 +608,12 @@ async function migrateCasesV311(){
     delete c.lost; /* 失注かどうかはステータスで判断する(lostReasonは分析用に残す) */
     await saveCaseRow(c);
   }
+}
+/* 週間ボードに行を出す対象 = 案件の担当になるメンバー + カレンダー共有アカウント。
+   カレンダー共有アカウント(共通・コプロスアリーナ・案件を持たない人)は予定表には出るが、
+   案件の担当・会議モード・日報の集計には出さない。 */
+function boardRows(){
+  return [...master.members, ...(master.calendarOnly||[])];
 }
 /* 終了した案件(完了・失注)。進行中=それ以外 */
 const DONE_STATUS="完了", LOST_STATUS="失注";
@@ -677,8 +687,23 @@ async function boot(){
     return;
   }
   sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  /* ログイン済みならそのままアプリへ。未ログインならログイン画面のまま。
+     マスター等の読み込みはログイン後に行う(RLSにより未ログインでは読めないため) */
+  const {data:{session}}=await sb.auth.getSession();
+  if(session) await startSession(session);
+}
+/* ログイン中のユーザーの表示名。Supabaseのユーザー情報(display_name)を正とする */
+function displayNameOf(user){
+  const meta=user&&user.user_metadata||{};
+  return meta.display_name || meta.name || (user&&user.email? user.email.split("@")[0] : "");
+}
+/* ログイン成功後の共通処理。マスター・設定を読み込んでアプリを開く */
+async function startSession(session){
+  me=displayNameOf(session.user);
+  if(!me){ $("loginMsg").textContent="このアカウントに表示名が設定されていません。管理者に連絡してください。"; return; }
   const m=await kvGet("master");
   if(m) master={...DEFAULT_MASTER, ...m};
+  if(!Array.isArray(master.calendarOnly)) master.calendarOnly=[];
   if(!master.statuses.includes("請求書提出")){
     const idx=master.statuses.indexOf("完了");
     if(idx>=0) master.statuses.splice(idx,0,"請求書提出"); else master.statuses.push("請求書提出");
@@ -690,30 +715,23 @@ async function boot(){
     await kvSet("master",master);
   }
   settings=(await kvGet("settings"))||{};
-  renderLoginButtons();
-  const saved=sessionStorage.getItem("dwolf_user");
-  if(saved && master.members.includes(saved)){ me=saved; await enterApp(); }
-}
-function renderLoginButtons(){
-  $("memberButtons").innerHTML = master.members.map(m=>`
-    <button class="btn btn-secondary member-btn" data-m="${esc(m)}">
-      <span>${esc(m)}</span>
-      ${m===master.manager? '<span style="font-size:10px; color:#E8590C; border:1px solid #E8590C; border-radius:3px; padding:1px 6px;">管理責任者</span>':''}
-    </button>`).join("");
-  document.querySelectorAll(".member-btn").forEach(b=>{
-    b.addEventListener("click", ()=>{
-      selectedLoginName=b.dataset.m;
-      document.querySelectorAll(".member-btn").forEach(x=>x.classList.toggle("selected", x===b));
-    });
-  });
+  await enterApp();
 }
 async function tryLogin(){
-  if(!selectedLoginName){ $("loginMsg").textContent="名前を選択してください。"; return; }
-  const pw=(await kvGet("app_password"))||"dwolf2026";
-  if($("loginPw").value!==pw){ $("loginMsg").textContent="パスワードが違います。"; return; }
-  me=selectedLoginName;
-  sessionStorage.setItem("dwolf_user", me);
-  await enterApp();
+  const email=$("loginEmail").value.trim();
+  const pw=$("loginPw").value;
+  if(!email||!pw){ $("loginMsg").textContent="メールアドレスとパスワードを入力してください。"; return; }
+  $("loginMsg").textContent="ログイン中…";
+  const {data,error}=await sb.auth.signInWithPassword({email, password:pw});
+  if(error){
+    $("loginMsg").textContent = /Invalid login credentials/i.test(error.message||"")
+      ? "メールアドレスまたはパスワードが違います。"
+      : `ログインできませんでした:${error.message}`;
+    return;
+  }
+  $("loginMsg").textContent="";
+  $("loginPw").value="";
+  await startSession(data.session);
 }
 async function enterApp(){
   $("loginScreen").style.display="none";
@@ -729,8 +747,8 @@ async function enterApp(){
   /* 6時以降の初回起動なら裏で自動取込。失敗しても通常操作は妨げない */
   maybeAutoImportCalendar().catch(e=>console.error("自動取込", e));
 }
-function logout(){
-  sessionStorage.removeItem("dwolf_user");
+async function logout(){
+  try{ await sb.auth.signOut(); }catch(e){ console.error(e); }
   location.reload();
 }
 
@@ -761,7 +779,7 @@ async function setMonday(m){ monday=m; updateWeekLabel(); await loadWeek(); rend
 function renderBoard(){
   const dates=weekDates(monday);
   let html=`<tr><th>氏名</th>${DAYS.map((d,i)=>`<th>${d} ${fmtShort(dates[i])}</th>`).join("")}</tr>`;
-  master.members.forEach(m=>{
+  boardRows().forEach(m=>{
     html+=`<tr><td style="font-weight:800; background:${m===me?"#FFF0E6":"#FAFAF9"}; white-space:nowrap;">${esc(m)}</td>`;
     DAYS.forEach((_,i)=>{
       const val=(week.schedule[m]||[])[i]||"";
@@ -777,6 +795,7 @@ function renderBoard(){
       queueSave("week");
     });
   });
+  renderCalTargetSelect();
   $("calAutoToggle").checked=calAutoOn();
   renderBoardAnnouncements();
 }
@@ -1027,7 +1046,8 @@ function calSyncRange(){
   return {start, end};
 }
 /* items: [{date:Date, label:string}] を該当週へ振り分けて保存する */
-async function applyCalendarEvents(items){
+async function applyCalendarEvents(items, target){
+  const row=target||me;
   const {start,end}=calSyncRange();
   const byWeek=new Map();
   items.forEach(it=>{
@@ -1043,40 +1063,62 @@ async function applyCalendarEvents(items){
   });
   let count=0, weeksTouched=0;
   for(const [key, list] of [...byWeek.entries()].sort()){
-    const res=await updateWeekMine(key, (w)=>{
+    const res=await updateWeekMine(key, (w,r)=>{
       let added=0;
       list.forEach(({dayIdx,label})=>{
-        const cell=w.schedule[me][dayIdx]||"";
+        const cell=w.schedule[r][dayIdx]||"";
         if(cell.split("\n").includes(label)) return; /* 同じ予定の二重取込を防ぐ */
-        w.schedule[me][dayIdx]=cell? cell+"\n"+label : label;
-        if(!w.calImported[me].includes(label)) w.calImported[me].push(label);
+        w.schedule[r][dayIdx]=cell? cell+"\n"+label : label;
+        if(!w.calImported[r].includes(label)) w.calImported[r].push(label);
         added++;
       });
       return {changed:added>0, added};
-    });
+    }, row);
     if(res.changed){ weeksTouched++; count+=res.added; }
   }
   renderBoard();
   return {count, weeksTouched};
 }
-function calImportDoneMessage(res, seen, calCount){
-  if(!res.count) return `新しく取り込む予定はありませんでした(${seen}件を確認)。`;
-  return `${res.count}件の予定を取り込みました(${seen}件中、重複除く)。\n`
+function calImportDoneMessage(res, seen, calCount, target){
+  const who=target&&target!==me? `「${target}」の欄に` : "";
+  if(!res.count) return `${who}新しく取り込む予定はありませんでした(${seen}件を確認)。`;
+  return `${who}${res.count}件の予定を取り込みました(${seen}件中、重複除く)。\n`
     +`対象:今週から${CAL_SYNC_WEEKS}週間／カレンダー${calCount}件／${res.weeksTouched}週分の予定表を更新しました。`;
 }
 
 /* ---------- 取込対象カレンダーの選択(Outlook/Google共通) ----------
    1アカウントに複数カレンダーがある場合に、どれを取り込むかを個人ごとに保存する。
    settingsは全員共通のkvなので、氏名をキーにして各自の選択を分けて持つ。 */
-function calSelected(provider){
+function calSelected(provider, target){
   const all=(settings.calSelect||{})[provider]||{};
-  const ids=all[me];
+  const ids=all[target||me];
   return Array.isArray(ids)? ids : [];
 }
-async function setCalSelected(provider, ids){
+/* 取込先(自分 or カレンダー共有アカウント) */
+function calTarget(){ const el=$("calTargetSelect"); return (el&&el.value)||me; }
+/* 取込先の選択肢:自分 + カレンダー共有アカウント。
+   共有アカウントは、既に別のメンバーが設定していればその人の名前を添える */
+function renderCalTargetSelect(){
+  const el=$("calTargetSelect"); if(!el) return;
+  const cur=el.value;
+  const opts=[me, ...(master.calendarOnly||[]).filter(t=>t!==me)];
+  el.innerHTML=opts.map(t=>{
+    const owner=t!==me? calOwnerOf(t) : "";
+    const label = t===me? `${t}(自分)` : (owner? `${t}(設定:${owner})` : t);
+    return `<option value="${esc(t)}" ${t===cur?"selected":""}>${esc(label)}</option>`;
+  }).join("");
+  if(!opts.includes(cur)) el.value=me;
+}
+/* 共有アカウントのカレンダーは、設定した本人のGoogle/Outlookでしか取れないので
+   誰が設定したかを覚えておき、自動取込はその人のときだけ実行する */
+function calOwnerOf(target){ return (settings.calOwner||{})[target]||""; }
+async function setCalSelected(provider, ids, target){
+  const row=target||me;
   settings.calSelect=settings.calSelect||{};
   settings.calSelect[provider]=settings.calSelect[provider]||{};
-  settings.calSelect[provider][me]=ids;
+  settings.calSelect[provider][row]=ids;
+  settings.calOwner=settings.calOwner||{};
+  settings.calOwner[row]=me;
   await kvSet("settings", settings);
 }
 /* 利用可能なカレンダー一覧を [{id,name,primary}] で返す */
@@ -1132,13 +1174,19 @@ async function graphLoginSilent(){
     return !!graphToken;
   }catch(e){ return false; }
 }
+/* 自動取込の対象:自分の行と、自分が設定した共有カレンダーの行
+   (共有カレンダーは設定した人のアカウントでしか取得できないため) */
+function autoImportTargets(){
+  return [me, ...(master.calendarOnly||[]).filter(t=>calOwnerOf(t)===me)];
+}
 async function maybeAutoImportCalendar(){
   if(!calAutoOn()) return;
   const now=new Date();
   if(now.getHours()<CAL_AUTO_HOUR) return;
   const today=toISODate(now);
   if(((settings.calAutoLast||{})[me])===today) return;
-  const providers=["outlook","google"].filter(p=>calSelected(p).length);
+  const targets=autoImportTargets();
+  const providers=["outlook","google"].filter(p=>targets.some(t=>calSelected(p,t).length));
   if(!providers.length) return;
   let total=0, ranAny=false;
   for(const p of providers){
@@ -1146,8 +1194,10 @@ async function maybeAutoImportCalendar(){
       const ok = p==="google"? await googleLoginSilent() : await graphLoginSilent();
       if(!ok) continue;
       ranAny=true;
-      const r=await autoImportSilently(p);
-      total+=r;
+      for(const t of targets){
+        if(!calSelected(p,t).length) continue;
+        total+=await autoImportSilently(p,t);
+      }
     }catch(e){ console.error("自動取込に失敗", p, e); }
   }
   /* 認証すら通らなかった日は記録せず、次に開いた時にもう一度試す */
@@ -1161,12 +1211,13 @@ async function maybeAutoImportCalendar(){
   }
 }
 /* 自動取込はダイアログを出さずに実行する(取込処理はボタン操作と同じ) */
-async function autoImportSilently(provider){
-  const calIds=calSelected(provider);
+async function autoImportSilently(provider, target){
+  const calIds=calSelected(provider, target);
+  if(!calIds.length) return 0;
   const items = provider==="google"
     ? await fetchGoogleEvents(calIds)
     : await fetchOutlookEvents(calIds);
-  const res=await applyCalendarEvents(items);
+  const res=await applyCalendarEvents(items, target);
   return res.count;
 }
 
@@ -1175,14 +1226,15 @@ async function autoImportSilently(provider){
    取込分だけを取り消せる。記録が無い(v3.8以前に取り込んだ)場合は消せないため、
    その旨をメッセージで伝える。 */
 const CAL_RESET_BACK_WEEKS=4;
-async function clearImportedEvents(){
+async function clearImportedEvents(target){
+  const row=target||me;
   let removed=0, weeks=0, untracked=false;
   for(let i=-CAL_RESET_BACK_WEEKS; i<CAL_SYNC_WEEKS; i++){
     const mon=new Date(monday); mon.setDate(mon.getDate()+i*7);
     const key=fmtKey(mon);
-    const res=await updateWeekMine(key, (w)=>{
-      const labels=w.calImported[me];
-      const cells=w.schedule[me];
+    const res=await updateWeekMine(key, (w,r)=>{
+      const labels=w.calImported[r];
+      const cells=w.schedule[r];
       if(!labels.length){
         if(cells.some(c=>String(c||"").trim())) untracked=true;
         return {changed:false};
@@ -1192,18 +1244,19 @@ async function clearImportedEvents(){
         const lines=String(cells[d]||"").split("\n");
         const kept=lines.filter(ln=>!labels.includes(ln));
         n+=lines.length-kept.length;
-        w.schedule[me][d]=kept.join("\n").replace(/^\n+|\n+$/g,"");
+        w.schedule[r][d]=kept.join("\n").replace(/^\n+|\n+$/g,"");
       }
-      w.calImported[me]=[];
+      w.calImported[r]=[];
       return {changed:true, n};
-    });
+    }, row);
     if(res.changed){ weeks++; removed+=res.n; }
   }
   return {removed, weeks, untracked};
 }
 async function resetCalendarLink(){
+  const target=calTarget();
   if(!confirm(
-    `カレンダー連携をリセットします(対象は自分「${me}」の分だけです)。\n\n`
+    `カレンダー連携をリセットします(対象は「${target}」の欄だけです)。\n\n`
     +"・保存した「取込対象カレンダー」の選択を削除します\n"
     +"・サインアウトし、次回の取込で別のアカウントを選べるようにします\n\n"
     +"※他のメンバーの予定・設定には一切影響しません。\n\n"
@@ -1212,19 +1265,20 @@ async function resetCalendarLink(){
     "これまでに取り込んだ予定も、予定表から削除しますか?\n\n"
     +"[OK] 取り込んだ予定を削除する\n"
     +"[キャンセル] 予定はそのまま残す\n\n"
-    +`※自分(${me})の分だけが対象です。手入力した予定は残ります。\n`
+    +`※「${target}」の欄だけが対象です。手入力した予定は残ります。\n`
     +`※対象は前${CAL_RESET_BACK_WEEKS}週〜先${CAL_SYNC_WEEKS-1}週の予定表です。`);
   let clearMsg="";
   if(alsoClear){
     try{
-      const r=await clearImportedEvents();
+      const r=await clearImportedEvents(target);
       clearMsg=`\n取り込んだ予定を${r.removed}件削除しました(${r.weeks}週分)。`;
       if(r.untracked) clearMsg+="\n※取込記録が残っていない古い予定は削除できません。予定表から直接消してください。";
     }catch(e){ clearMsg="\n予定の削除中にエラーが発生しました:"+(e.message||e); }
   }
   /* 選択の削除 */
   if(settings.calSelect){
-    ["google","outlook"].forEach(p=>{ if(settings.calSelect[p]) delete settings.calSelect[p][me]; });
+    ["google","outlook"].forEach(p=>{ if(settings.calSelect[p]) delete settings.calSelect[p][target]; });
+    if(settings.calOwner) delete settings.calOwner[target];
     await kvSet("settings", settings);
   }
   /* サインアウト。次回はアカウント選択画面から入り直せる */
@@ -1246,15 +1300,16 @@ async function resetCalendarLink(){
 }
 let calPickState=null;
 /* カレンダー選択モーダルを開く。保存後に onSaved を呼ぶ */
-async function openCalendarPicker(provider, onSaved){
+async function openCalendarPicker(provider, onSaved, target){
+  const row=target||calTarget();
   let list;
   try{ list=await fetchCalendarList(provider); }
   catch(e){ alert("カレンダー一覧の取得に失敗しました:\n"+(e.message||e)); return; }
   if(!list.length){ alert("利用できるカレンダーが見つかりませんでした。"); return; }
-  const saved=calSelected(provider);
+  const saved=calSelected(provider,row);
   const checked=new Set(saved.length? saved : list.filter(c=>c.primary).map(c=>c.id));
-  calPickState={provider, list, checked, onSaved};
-  $("calPickTitle").textContent=`${provider==="google"?"Google":"Outlook"}:取込対象カレンダー`;
+  calPickState={provider, list, checked, onSaved, target:row};
+  $("calPickTitle").textContent=`${provider==="google"?"Google":"Outlook"}:取込対象カレンダー(${row})`;
   $("btnCalPickSave").textContent=onSaved? "保存して取り込む" : "保存";
   renderCalPickList();
   $("calPickModal").classList.add("show");
@@ -1276,23 +1331,23 @@ async function saveCalendarPick(){
   if(!calPickState) return;
   const ids=[...calPickState.checked];
   if(!ids.length){ alert("カレンダーを1つ以上選択してください。"); return; }
-  const {provider, onSaved}=calPickState;
-  await setCalSelected(provider, ids);
+  const {provider, onSaved, target}=calPickState;
+  await setCalSelected(provider, ids, target);
   $("calPickModal").classList.remove("show");
   calPickState=null;
   setStatus("取込対象カレンダーを保存しました");
-  if(onSaved) await onSaved(ids);
+  if(onSaved) await onSaved(ids, target);
 }
 /* 取込時に使うカレンダーIDを決める。未選択なら一覧を取得し、
    複数ある場合だけ選択画面を出す(1つしかない人はそのまま取り込める) */
-async function resolveCalendarIds(provider){
-  const saved=calSelected(provider);
+async function resolveCalendarIds(provider, target){
+  const row=target||calTarget();
+  const saved=calSelected(provider,row);
   if(saved.length) return saved;
-  let list;
-  try{ list=await fetchCalendarList(provider); }catch(e){ throw e; }
+  const list=await fetchCalendarList(provider);
   if(list.length<=1){
     const ids=list.map(c=>c.id);
-    if(ids.length) await setCalSelected(provider, ids);
+    if(ids.length) await setCalSelected(provider, ids, row);
     return ids;
   }
   return null; /* 呼び出し側で選択モーダルを出す */
@@ -1301,10 +1356,11 @@ async function importCalendarWeek(){
   if(!teamsCfgOk()){ alert("設定タブでテナントID・クライアントIDを先に登録してください(Teams連携と共通です)。"); return; }
   const ok=await calendarLogin();
   if(!ok){ alert("Microsoftサインインが必要です。もう一度ボタンを押してください。"); return; }
+  const target=calTarget();
   try{
-    const ids=await resolveCalendarIds("outlook");
-    if(!ids){ await openCalendarPicker("outlook", ()=>runOutlookImport()); return; }
-    await runOutlookImport(ids);
+    const ids=await resolveCalendarIds("outlook", target);
+    if(!ids){ await openCalendarPicker("outlook", (savedIds)=>runOutlookImport(savedIds,target), target); return; }
+    await runOutlookImport(ids, target);
   }catch(e){ alert("取込エラー:"+(e.message||e)); }
 }
 /* Outlookの予定を取得して [{date,label}] に整形する(手動取込・自動取込で共用) */
@@ -1328,13 +1384,14 @@ async function fetchOutlookEvents(calIds){
   items.seen=events.length;
   return items;
 }
-async function runOutlookImport(ids){
-  const calIds=ids||calSelected("outlook");
+async function runOutlookImport(ids, target){
+  const row=target||calTarget();
+  const calIds=ids||calSelected("outlook",row);
   try{
     const items=await fetchOutlookEvents(calIds);
     if(!items.seen){ alert(`今週から${CAL_SYNC_WEEKS}週間の予定は見つかりませんでした。`); return; }
-    const res=await applyCalendarEvents(items);
-    alert(calImportDoneMessage(res, items.seen, calIds.length));
+    const res=await applyCalendarEvents(items, row);
+    alert(calImportDoneMessage(res, items.seen, calIds.length, row));
   }catch(e){ alert("取込エラー:"+(e.message||e)); }
 }
 
@@ -1390,10 +1447,11 @@ async function importGoogleCalendarWeek(){
   if(!ensureGsi()){ alert("Google連携の読み込みに失敗しました。少し待ってページを再読み込みしてください。"); return; }
   const ok=await googleLogin();
   if(!ok){ alert("Googleサインインが必要です。もう一度ボタンを押してください(ポップアップブロックにご注意ください)。"); return; }
+  const target=calTarget();
   try{
-    const ids=await resolveCalendarIds("google");
-    if(!ids){ await openCalendarPicker("google", ()=>runGoogleImport()); return; }
-    await runGoogleImport(ids);
+    const ids=await resolveCalendarIds("google", target);
+    if(!ids){ await openCalendarPicker("google", (savedIds)=>runGoogleImport(savedIds,target), target); return; }
+    await runGoogleImport(ids, target);
   }catch(e){ alert("取込エラー:"+(e.message||e)); }
 }
 /* Googleの予定を取得して [{date,label}] に整形する(手動取込・自動取込で共用) */
@@ -1422,13 +1480,14 @@ async function fetchGoogleEvents(calIds){
   items.seen=events.length;
   return items;
 }
-async function runGoogleImport(ids){
-  const calIds=ids||calSelected("google");
+async function runGoogleImport(ids, target){
+  const row=target||calTarget();
+  const calIds=ids||calSelected("google",row);
   try{
     const items=await fetchGoogleEvents(calIds);
     if(!items.seen){ alert(`今週から${CAL_SYNC_WEEKS}週間の予定は見つかりませんでした。`); return; }
-    const res=await applyCalendarEvents(items);
-    alert(calImportDoneMessage(res, items.seen, calIds.length));
+    const res=await applyCalendarEvents(items, row);
+    alert(calImportDoneMessage(res, items.seen, calIds.length, row));
   }catch(e){ alert("取込エラー:"+(e.message||e)); }
 }
 
@@ -3385,7 +3444,7 @@ function renderReport(){
     <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">3. 週間スケジュール</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px; font-size:10.5px;">
       <tr><th style="${th}">氏名</th>${DAYS.map((d,i)=>`<th style="${th}">${d} ${fmtShort(dates[i])}</th>`).join("")}</tr>
-      ${master.members.map(m=>`<tr><td style="${td} font-weight:700;">${esc(m)}</td>${DAYS.map((_,i)=>`<td style="${td} white-space:pre-wrap;">${esc((week.schedule[m]||[])[i]||"")}</td>`).join("")}</tr>`).join("")}
+      ${boardRows().map(m=>`<tr><td style="${td} font-weight:700;">${esc(m)}</td>${DAYS.map((_,i)=>`<td style="${td} white-space:pre-wrap;">${esc((week.schedule[m]||[])[i]||"")}</td>`).join("")}</tr>`).join("")}
     </table>
     <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">4. 日報まとめ(先週の業務内容・報告相談事項)</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
@@ -3481,7 +3540,17 @@ function renderMaster(){
       </div>
     </div>`;
   $("masterPanel").innerHTML=`
-    ${listRow("メンバー", master.members, "newMember", "members", null)}
+    ${listRow("メンバー(案件の担当になる人・ログインする人)", master.members, "newMember", "members", null)}
+    ${listRow("カレンダー共有アカウント(予定表の行のみ・案件の担当には出ません)", master.calendarOnly||[], "newCalAcct", "calendarOnly", null)}
+    <div class="card" style="border-left:4px solid #E8590C;">
+      <div style="font-size:12px; color:#3D4F5E; line-height:1.8;">
+        <b>ログインアカウントについて</b><br>
+        ここで追加できるのは<b>アプリ内の名前だけ</b>です。実際にログインできるようにするには、
+        Supabaseの管理画面(Authentication → Users → Add user)でメールアドレスとパスワードを登録し、
+        <code>setup-auth.sql</code> の最後にある表示名の設定を、ここで追加した名前と同じにしてください。<br>
+        カレンダー共有アカウントは<b>ログイン不要</b>です。週間ボードの「取込先」で選ぶと、メンバーの誰かが代わりに予定を取り込めます。
+      </div>
+    </div>
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:10px;">管理責任者</h3>
       <select id="managerSelect">${master.members.map(m=>`<option ${m===master.manager?"selected":""}>${esc(m)}</option>`).join("")}</select>
@@ -3506,12 +3575,11 @@ function renderMaster(){
       <input type="number" id="mandayLimit" value="${master.mandayLimit}" min="1" step="0.5" style="width:120px;">
     </div>
     <div class="card">
-      <h3 style="font-weight:800; margin-bottom:10px;">共通パスワード変更</h3>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <input type="text" id="newPw" placeholder="新しいパスワード" style="flex:1; min-width:200px;">
-        <button class="btn btn-primary" id="btnChangePw">変更する</button>
+      <h3 style="font-weight:800; margin-bottom:10px;">ログインパスワード</h3>
+      <div style="font-size:12.5px; color:#3D4F5E; line-height:1.8;">
+        パスワードは<b>一人ひとり別々</b>になり、Supabaseの管理画面で管理します。<br>
+        変更・リセットは Authentication → Users → 対象ユーザー → <b>Reset password</b> から行ってください。
       </div>
-      <div style="font-size:11.5px; color:#6B7A87; margin-top:6px;">変更後は全メンバーに新パスワードを共有してください。</div>
     </div>`;
   document.querySelectorAll("[data-rm]").forEach(b=>b.addEventListener("click",async ()=>{
     const [field,val]=b.dataset.rm.split("|");
@@ -3524,6 +3592,7 @@ function renderMaster(){
   document.querySelectorAll("[data-add]").forEach(b=>b.addEventListener("click",async ()=>{
     const [inputId,field]=b.dataset.add.split("|");
     const val=$(inputId).value.trim();
+    if(!Array.isArray(master[field])) master[field]=[];
     if(!val||master[field].includes(val)) return;
     master[field].push(val); $(inputId).value="";
     await kvSet("master",master); await logAction("マスター変更",`${field}に${val}を追加`);
@@ -3531,13 +3600,6 @@ function renderMaster(){
   }));
   $("managerSelect").addEventListener("change",async ()=>{ master.manager=$("managerSelect").value; await kvSet("master",master); });
   $("mandayLimit").addEventListener("change",async ()=>{ master.mandayLimit=parseFloat($("mandayLimit").value)||5; await kvSet("master",master); });
-  $("btnChangePw").addEventListener("click",async ()=>{
-    const pw=$("newPw").value.trim();
-    if(pw.length<4){ alert("4文字以上にしてください。"); return; }
-    await kvSet("app_password",pw); await logAction("設定変更","共通パスワードを変更");
-    alert("パスワードを変更しました。全メンバーに共有してください。");
-    $("newPw").value="";
-  });
   bindMasterDnd();
   renderCustomerList();
   $("btnAddCustomer").addEventListener("click", async ()=>{
@@ -3617,7 +3679,7 @@ function renderSettings(){
         <li>取込時はURLをブラウザで開いて .ics をダウンロード → 週間ボードの「ICSファイル取込」</li>
       </ol>
       <div id="icsPanel" style="display:grid; gap:10px;">
-        ${master.members.map(m=>`
+        ${boardRows().map(m=>`
           <label style="font-size:12px; font-weight:700;">${esc(m)}
             <input type="text" class="w100 ics-url" data-ics="${esc(m)}" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" value="${esc((settings.icsUrls||{})[m]||"")}" style="margin-top:4px;">
           </label>`).join("")}
@@ -3693,6 +3755,7 @@ async function refreshMfStatus(){
 document.addEventListener("DOMContentLoaded", ()=>{
   $("btnLogin").addEventListener("click", tryLogin);
   $("loginPw").addEventListener("keydown", e=>{ if(e.key==="Enter") tryLogin(); });
+  $("loginEmail").addEventListener("keydown", e=>{ if(e.key==="Enter") $("loginPw").focus(); });
   $("btnLogout").addEventListener("click", logout);
   $("btnReload").addEventListener("click", reloadCurrent);
   $("btnPrevW").addEventListener("click", ()=>{ const d=new Date(monday); d.setDate(d.getDate()-7); setMonday(d); });
@@ -3718,18 +3781,19 @@ document.addEventListener("DOMContentLoaded", ()=>{
   $("btnCalendarPickOutlook").addEventListener("click", async ()=>{
     if(!teamsCfgOk()){ alert("設定タブでテナントID・クライアントIDを先に登録してください(Teams連携と共通です)。"); return; }
     if(!await calendarLogin()){ alert("Microsoftサインインが必要です。もう一度ボタンを押してください。"); return; }
-    await openCalendarPicker("outlook", null);
+    await openCalendarPicker("outlook", null, calTarget());
   });
   $("btnCalendarPickGoogle").addEventListener("click", async ()=>{
     if(!settings.googleClientId){ alert("設定タブでGoogleクライアントIDを登録してください。"); return; }
     if(!ensureGsi()){ alert("Google連携の読み込みに失敗しました。少し待ってページを再読み込みしてください。"); return; }
     if(!await googleLogin()){ alert("Googleサインインが必要です。もう一度ボタンを押してください(ポップアップブロックにご注意ください)。"); return; }
-    await openCalendarPicker("google", null);
+    await openCalendarPicker("google", null, calTarget());
   });
   $("btnCalendarReset").addEventListener("click", resetCalendarLink);
+  $("calTargetSelect").addEventListener("change", ()=>{ $("calAutoToggle").checked=calAutoOn(); });
   $("calAutoToggle").addEventListener("change", async (e)=>{
     const on=e.target.checked;
-    if(on && !calSelected("google").length && !calSelected("outlook").length){
+    if(on && !autoImportTargets().some(t=>calSelected("google",t).length||calSelected("outlook",t).length)){
       alert("先に一度「Outlookから自動取込」または「Googleカレンダーから自動取込」を実行して、取込対象カレンダーを決めてください。");
       e.target.checked=false; return;
     }
