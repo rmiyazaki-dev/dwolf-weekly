@@ -1784,17 +1784,19 @@ function renderCustomerDetail(){
       <div style="overflow-x:auto;"><table class="grid" style="margin-bottom:0;">
         <tr><th>実施日等</th><th>案件名</th><th>ステータス</th><th style="text-align:right;">見積額</th><th style="text-align:right;">受注額</th><th>請求状況</th><th>担当</th></tr>
         ${list.map(x=>`
-          <tr>
+          <tr data-cust-case="${x.id}" style="cursor:pointer;" title="クリックすると案件の編集画面を開きます">
             <td style="white-space:nowrap;">${esc(orderBaseDate(x)||"")}</td>
-            <td style="font-weight:700;">${esc(x.name)}${x.archived?'<span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3; color:#6B7A87; margin-left:4px;">完了</span>':""}</td>
+            <td style="font-weight:700; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px;">${esc(x.name)}${x.archived?'<span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3; color:#6B7A87; margin-left:4px;">完了</span>':""}</td>
             <td>${esc(x.status)}</td>
             <td style="text-align:right;">${fmtYen(x.quoteAmount)||"―"}</td>
             <td style="text-align:right; font-weight:700;">${fmtYen(x.orderAmount)||"―"}</td>
             <td>${esc(x.billingStatus||"")}</td>
             <td>${esc(caseOwnerName(x))}</td>
           </tr>`).join("")}
-      </table></div>`}
+      </table></div>
+      <div style="font-size:11px; color:#6B7A87; margin-top:6px;">案件をクリックすると編集画面が開きます。</div>`}
     </div>`;
+  document.querySelectorAll("[data-cust-case]").forEach(tr=>tr.addEventListener("click",()=>openCase(+tr.dataset.custCase)));
   $("btnCustBack").addEventListener("click",()=>{ custDetailId=null; renderCustomers(); });
   $("btnCustCases").addEventListener("click",()=>{
     const norm=mfNormName(c.name);
@@ -2221,7 +2223,11 @@ async function saveCase(){
     await loadMfReviewQueue();
   }
   $("caseModal").classList.remove("show");
-  await loadCases(); renderCases();
+  await loadCases();
+  /* 案件編集は顧客タブ・カンバンからも開けるので、開いている画面を描き直す */
+  if(currentTab==="customers") renderCustomers();
+  else if(currentTab==="kanban") renderKanban();
+  else renderCases();
   setStatus(ok?"保存しました":"保存失敗", ok);
 }
 
