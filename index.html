@@ -2415,9 +2415,20 @@ function renderDashboard(){
       ${note?`<div style="font-size:11px; color:#6B7A87; margin-top:4px;">${note}</div>`:""}
     </div>`;
   };
-  /* 分類別・営業担当別・フライト担当別は「実際に受注(orderAmount>0)している案件」のみを対象にする(見積のみの案件は含めない) */
-  const isOrdered=(c)=>!c.archived && num(c.orderAmount)>0;
-  const ordered=active.filter(c=>num(c.orderAmount)>0);
+  /* 表示する期を先に決める(下の3グラフも同じ期で集計するため) */
+  const fySet=new Set([currentFY()]);
+  cases.forEach(c=>{
+    [fyOf(orderBaseDate(c)), fyOf(c.paymentDate)].forEach(f=>{ if(f!=null) fySet.add(f); });
+  });
+  const fyList=[...fySet].sort((a,b)=>a-b);
+  if(dashFY==null || !fyList.includes(dashFY)) dashFY=currentFY();
+
+  /* 分類別・営業担当別・フライト担当別は、期別サマリーの「受注件数」と必ず一致させる。
+     = 受注額が確定(orderAmount>0)し、受注日が選択中の期に入っている案件。完了済も含む。
+     (受注日が未入力の案件はどの期にも入らないため、月次表の「日付未指定」行に出る) */
+  const inFY=(c)=>num(c.orderAmount)>0 && fyOf(orderBaseDate(c))===dashFY;
+  const isOrdered=inFY;
+  const ordered=cases.filter(inFY);
   const byCat=master.categories.map((cat,i)=>({
     label:cat, color:CAT_PALETTE[i%CAT_PALETTE.length],
     count:ordered.filter(c=>c.category===cat).length,
@@ -2455,12 +2466,6 @@ function renderDashboard(){
   }).filter(r=>r.count>0);
 
   /* ===== 期(6月末決算)・月次の受注/売上予測 ===== */
-  const fySet=new Set([currentFY()]);
-  cases.forEach(c=>{
-    [fyOf(orderBaseDate(c)), fyOf(c.paymentDate)].forEach(f=>{ if(f!=null) fySet.add(f); });
-  });
-  const fyList=[...fySet].sort((a,b)=>a-b);
-  if(dashFY==null || !fyList.includes(dashFY)) dashFY=currentFY();
   const nowYm=`${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`;
 
   const fyStats=(fy)=>{
@@ -2661,9 +2666,9 @@ function renderDashboard(){
     </div>
     ${fyPanel}
     ${pipelineCard}
-    ${barTable("分類別", byCat)}
-    ${barTable("営業担当別 受注額", bySalesOwner)}
-    ${barTable("フライト担当別 売上", byFlightOwner, "売上は案件ごとのフライト担当の比率に応じて按分しています(比率未入力の案件は担当人数で均等割り)。件数は担当として関わっている案件数のため、合計は受注件数より多くなることがあります。")}
+    ${barTable(`分類別 受注額(${fyLabel(dashFY)})`, byCat, `完了済の案件も含みます。件数の合計は上の「期別サマリー」の受注件数(${cur.orderCount}件)と一致します。`)}
+    ${barTable(`営業担当別 受注額(${fyLabel(dashFY)})`, bySalesOwner, `完了済の案件も含みます。件数の合計は上の「期別サマリー」の受注件数(${cur.orderCount}件)と一致します。`)}
+    ${barTable(`フライト担当別 売上(${fyLabel(dashFY)})`, byFlightOwner, "売上は案件ごとのフライト担当の比率に応じて按分しています(比率未入力の案件は担当人数で均等割り)。件数は担当として関わっている案件数のため、合計は受注件数より多くなることがあります。")}
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:10px;">顧客別売上ランキング TOP10(受注ベース・完了含む)</h3>
       ${custRanking.length===0? `<div style="color:#6B7A87; font-size:12px;">対象データがありません。</div>` : custRanking.map((r,i)=>`
@@ -2690,7 +2695,8 @@ function renderDashboard(){
   document.querySelectorAll("[data-dash-bar]").forEach(el=>el.addEventListener("click", ()=>{
     const f=barPredicates[el.dataset.dashBar];
     if(!f) return;
-    dashboardCaseFilter={label:f.label, predicate:f.predicate};
+    /* 完了済も集計に含めているので、一覧にも同じ範囲を出す */
+    dashboardCaseFilter={label:f.label, includeArchived:true, predicate:f.predicate};
     switchTab("cases");
   }));
   const undatedEl=document.querySelector("[data-dash-undated]");
