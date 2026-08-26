@@ -255,9 +255,10 @@
         <span class="section-num">03</span><h2 class="section-title">カンバンボード(進捗俯瞰)</h2>
         <div style="margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <select id="kanbanFilterOwner"><option>全員</option></select>
+          <label style="font-size:12px; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="kanbanShowArchived"> 完了済も表示</label>
         </div>
       </div>
-      <div class="alert alert-info" style="font-size:12px;">◀ ▶ ボタンでステータスを移動できます(変更は履歴に自動記録されます)。担当の絞り込みは営業担当・フライト担当を横断して検索します。</div>
+      <div class="alert alert-info" style="font-size:12px;">◀ ▶ ボタンでステータスを移動できます(変更は履歴に自動記録されます)。担当の絞り込みは営業担当・フライト担当を横断して検索します。<br>案件カードの「完了」ボタンでアーカイブした案件は通常は非表示です。「完了済も表示」にチェックを入れると、それぞれのステータスの列に薄く表示されます。</div>
       <div id="kanbanBoard" style="display:flex; gap:10px; overflow-x:auto; align-items:flex-start; padding-bottom:8px;"></div>
     </div>
 
@@ -2302,8 +2303,11 @@ function renderKanban(){
   const sel=$("kanbanFilterOwner");
   const cur=sel.value||"全員";
   sel.innerHTML=`<option>全員</option>`+master.members.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
+  /* 「完了」ボタンでアーカイブした案件は既定では出さない(案件管理と同じ挙動)。
+     チェックを入れると、それぞれのステータスの列に薄く表示する */
+  const showArchived=$("kanbanShowArchived").checked;
   /* 案件管理と同じく、営業担当・フライト担当(主/副①/副②)を横断して絞り込む */
-  const active=cases.filter(c=>!c.archived)
+  const active=cases.filter(c=>showArchived? true : !c.archived)
     .filter(c=>sel.value==="全員"? true : (caseOwnerName(c)===sel.value || flightAssignments(c).some(f=>f.name===sel.value)));
   $("kanbanBoard").innerHTML=master.statuses.map((st,si)=>{
     const items=active.filter(c=>c.status===st);
@@ -2316,18 +2320,35 @@ function renderKanban(){
         ${items.length===0? `<div style="color:#B0B7BD; font-size:11.5px; text-align:center; padding:10px 0;">なし</div>` : items.map(c=>{
           const d=dueInfo(c);
           return `
-          <div style="border:1px solid #DCE0E3; border-left:4px solid ${catColor(c.category)}; border-radius:7px; padding:8px;">
-            <div style="font-size:12.5px; font-weight:800; line-height:1.4;">${esc(c.name)}</div>
+          <div style="border:1px solid #DCE0E3; border-left:4px solid ${c.lost?"#9B2C2C":catColor(c.category)}; border-radius:7px; padding:8px; ${c.archived?"opacity:0.55; background:#FAFAF9;":""}">
+            <div style="font-size:12.5px; font-weight:800; line-height:1.4;">${esc(c.name)}
+              ${c.archived?'<span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3; color:#6B7A87; margin-left:4px;">完了</span>':""}
+              ${c.lost?'<span class="chip" style="background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C; margin-left:4px;">失注</span>':""}
+            </div>
             <div style="font-size:11px; color:#3D4F5E; margin-top:3px;">${esc(caseOwnerName(c))}${c.customerName?`｜${esc(c.customerName)}`:""}</div>
             ${c.execDate? `<div style="font-size:11px; margin-top:2px; color:${d? (d.level==="over"?"#9B2C2C":"#7A5B00") : "#8A959E"}; font-weight:${d?800:400};">実施日 ${esc(c.execDate)}${d?`(${d.label})`:""}</div>`:""}
             <div style="display:flex; justify-content:space-between; margin-top:6px;">
-              <button class="btn btn-small btn-secondary" data-kb-move="${c.id}|-1" ${si===0?"disabled style='opacity:0.3;'":""}>◀</button>
-              <button class="btn btn-small btn-secondary" data-kb-edit="${c.id}">編集</button>
-              <button class="btn btn-small btn-secondary" data-kb-move="${c.id}|1" ${si===master.statuses.length-1?"disabled style='opacity:0.3;'":""}>▶</button>
+              ${c.archived
+                ? `<button class="btn btn-small btn-secondary" data-kb-unar="${c.id}">戻す</button>
+                   <button class="btn btn-small btn-secondary" data-kb-edit="${c.id}">編集</button>`
+                : `<button class="btn btn-small btn-secondary" data-kb-move="${c.id}|-1" ${si===0?"disabled style='opacity:0.3;'":""}>◀</button>
+                   <button class="btn btn-small btn-secondary" data-kb-edit="${c.id}">編集</button>
+                   <button class="btn btn-small btn-secondary" data-kb-move="${c.id}|1" ${si===master.statuses.length-1?"disabled style='opacity:0.3;'":""}>▶</button>`}
             </div>
           </div>`;}).join("")}
       </div>
     </div>`;}).join("");
+  /* アーカイブ済のカードは進捗を動かせないので、代わりに「戻す」を出す(案件管理と同じ挙動) */
+  document.querySelectorAll("[data-kb-unar]").forEach(b=>b.addEventListener("click",async ()=>{
+    const c=cases.find(x=>x.id==+b.dataset.kbUnar); if(!c) return;
+    c.archived=false; c.updatedAt=Date.now();
+    let action="再開";
+    if(c.lost){ c.lost=false; c.lostReason=""; c.lostAt=""; action="再開(失注取消)"; }
+    await saveCaseRow(c);
+    await logAction("案件再開", c.name);
+    await logCaseHistory(c.id, action, "");
+    renderKanban(); setStatus("保存しました");
+  }));
   document.querySelectorAll("[data-kb-move]").forEach(b=>b.addEventListener("click",async ()=>{
     const [id,dir]=b.dataset.kbMove.split("|");
     const c=cases.find(x=>x.id==+id); if(!c) return;
@@ -3635,6 +3656,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
   $("todoShowDone").addEventListener("change", renderTodos);
   $("boardAnnShowRead").addEventListener("change", renderBoardAnnouncements);
   $("kanbanFilterOwner").addEventListener("change", renderKanban);
+  $("kanbanShowArchived").addEventListener("change", renderKanban);
   $("btnIcs").addEventListener("click", ()=>$("icsFile").click());
   $("btnCalendarImport").addEventListener("click", importCalendarWeek);
   $("btnGoogleCalendarImport").addEventListener("click", importGoogleCalendarWeek);
