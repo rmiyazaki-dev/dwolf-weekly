@@ -64,6 +64,7 @@ robots.txt も同リポジトリのルートに置いてあり、検索エンジ
     ログイン直後に走る旧データの自動移行(`migrateCasesV36`/`migrateCasesV311`/masterのステータス追加)は
     書き込みを伴うため、`isViewer`のときは保存をスキップし画面表示の補正のみ行う(でないと移行未実施の
     データに閲覧専用アカウントが最初に遭遇した場合ログイン自体が失敗しうる)
+    **山下和美(yamashita@shimizu-gumi.net)・成清沙織(narikiyo@shimizu-gumi.net)は`remove-viewer-role.sql`でviewerロールを解除済み(閲覧専用→編集可能な通常アカウントに変更)。ただし`master.members`には未追加のため、案件の営業担当・フライト担当・TODOの担当の選択肢には出てこない(案件・顧客・連絡事項等の編集はできる)
 - Teams連携: Entra ID(Azure AD)にSPAアプリ登録済み(`DWOLF-Nippo-Reader`)。MSAL.js使用。権限: ChannelMessage.Read.All, Team.ReadBasic.All, Channel.ReadBasic.All, Calendars.Read
   - リダイレクトURIは固定値 `https://dwolf-weekly-app.vercel.app`(location.origin動的生成だと稀にAADSTS500111エラーが出たため固定化した経緯あり)
 - Googleカレンダー連携: Google Identity Services使用。個人Gmailアカウント前提でOAuth同意画面は「外部」+テストユーザー登録方式
