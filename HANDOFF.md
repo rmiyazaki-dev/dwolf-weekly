@@ -49,6 +49,21 @@ robots.txt も同リポジトリのルートに置いてあり、検索エンジ
   - アカウントの追加/パスワードリセットはSupabaseダッシュボード(Authentication → Users)で行う。アプリ内では名前だけを管理する
   - **サーバー側(MF同期)はユーザーセッションを持てないため`lib/mf/supabaseAnon.js`はservice_role keyを使う**(anonではRLSに弾かれる)
   - 旧`kv.app_password`は廃止・削除済み
+  - **v3.13で閲覧専用アカウントに対応**(`setup-viewer-accounts.sql`)。`auth.users.raw_app_meta_data.role='viewer'`を
+    立てたアカウントは、RLSレベルで**書き込み(insert/update/delete)を拒否**される
+    (`public.is_viewer()`関数でapp_metadataを判定。app_metadataは本人からは書き換えられない領域なので権限判定に使える。
+    user_metadataは本人が書き換え可能なので絶対に権限判定に使わないこと)。
+    各テーブルのポリシーは`authenticated_all`(FOR ALL)から`authenticated_select/insert/update/delete`の4本に分割されている。
+    フロント側は`isViewer`フラグ(`computeIsViewer()`、ログイン時に`session.user.app_metadata`から判定)を持ち、
+    `applyViewerLock()`が`.btn-primary`/`.btn-danger`および既知の直接書き込み要素(週間ボードのスケジュール欄、
+    マスター管理の追加・削除・並び替え、各種モーダルの入力欄など)を無効化する。
+    タブ切替のたびに`innerHTML`で画面が作り直されるため、`MutationObserver`(`document.body`を監視。
+    モーダル類は`.container`の外・body直下にあるため`.container`ではなくbody全体を監視する必要がある)で
+    再描画のたびに掛け直す。**このロックはUXの配慮に過ぎず、実際の保護はRLS側**。
+    印刷ボタンなど書き込みを伴わないbtn-primaryには`data-viewer-safe="1"`を付けて除外する。
+    ログイン直後に走る旧データの自動移行(`migrateCasesV36`/`migrateCasesV311`/masterのステータス追加)は
+    書き込みを伴うため、`isViewer`のときは保存をスキップし画面表示の補正のみ行う(でないと移行未実施の
+    データに閲覧専用アカウントが最初に遭遇した場合ログイン自体が失敗しうる)
 - Teams連携: Entra ID(Azure AD)にSPAアプリ登録済み(`DWOLF-Nippo-Reader`)。MSAL.js使用。権限: ChannelMessage.Read.All, Team.ReadBasic.All, Channel.ReadBasic.All, Calendars.Read
   - リダイレクトURIは固定値 `https://dwolf-weekly-app.vercel.app`(location.origin動的生成だと稀にAADSTS500111エラーが出たため固定化した経緯あり)
 - Googleカレンダー連携: Google Identity Services使用。個人Gmailアカウント前提でOAuth同意画面は「外部」+テストユーザー登録方式

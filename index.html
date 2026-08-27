@@ -65,6 +65,8 @@
     .modal-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
     .todo-item { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px solid #EEE; }
+    .viewer-disabled { opacity: .4 !important; cursor: not-allowed !important; pointer-events: none !important; }
+    input:disabled, textarea:disabled, select:disabled { background: #F2F3F1; color: #6B7A87; cursor: not-allowed; }
     .todo-item.done span { text-decoration: line-through; color: #9AA4AC; }
 
     .alert { padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 12.5px; line-height: 1.7; }
@@ -110,6 +112,7 @@
            onerror="this.style.display='none'; document.getElementById('logoTextFallback').style.display='flex';">
       <span id="logoTextFallback" style="display:none; align-items:baseline; gap:8px;"><span class="logo-main">D-WOLF</span><span class="logo-sub">WEEKLY OPS v2</span></span>
     </div>
+    <span id="viewerBadge" style="display:none; background:#B34608; color:#fff; font-size:11px; font-weight:800; padding:3px 9px; border-radius:12px; white-space:nowrap;">閲覧専用</span>
     <div class="week-nav">
       <button id="btnPrevW">‹</button>
       <span class="label" id="weekLabel"></span>
@@ -325,7 +328,7 @@
     <div class="section" data-section="report">
       <div class="section-header">
         <span class="section-num">09</span><h2 class="section-title">社長報告(A4・1枚)</h2>
-        <button class="btn btn-primary" style="margin-left:auto;" onclick="window.print()">印刷 / PDF保存</button>
+        <button class="btn btn-primary" data-viewer-safe="1" style="margin-left:auto;" onclick="window.print()">印刷 / PDF保存</button>
       </div>
       <div style="font-size:12.5px; color:#3D4F5E; margin-bottom:12px;">下のプレビューがそのまま印刷されます。修正は各タブで行ってください。</div>
       <div id="printArea"></div>
@@ -590,7 +593,8 @@ async function migrateCasesV36(){
     c.orderDate=c.execDate||c.dueDate||c.paymentDate||"";
     if(!c.salesOwner) c.salesOwner=c.owner||"";
     if(c.flightOwner && !c.flightRatio1) c.flightRatio1="100";
-    await saveCaseRow(c);
+    /* 閲覧専用アカウントは書き込み権限が無いため保存しない(表示上の補正のみ、今回のセッション限り) */
+    if(!isViewer) await saveCaseRow(c);
   }
 }
 /* v3.11移行: アーカイブ(archived)を廃止し、終了状態を進捗ステータスで表す。
@@ -606,7 +610,8 @@ async function migrateCasesV311(){
     }
     delete c.archived;
     delete c.lost; /* 失注かどうかはステータスで判断する(lostReasonは分析用に残す) */
-    await saveCaseRow(c);
+    /* 閲覧専用アカウントは書き込み権限が無いため保存しない(表示上の補正のみ、今回のセッション限り) */
+    if(!isViewer) await saveCaseRow(c);
   }
 }
 /* 週間ボードに行を出す対象 = 案件の担当になるメンバー + カレンダー共有アカウント。
@@ -697,22 +702,45 @@ function displayNameOf(user){
   const meta=user&&user.user_metadata||{};
   return meta.display_name || meta.name || (user&&user.email? user.email.split("@")[0] : "");
 }
+/* 閲覧専用アカウントか。app_metadata(=service_role/管理者しか書き換えられない領域)の
+   roleで判定する。user_metadataは本人のクライアントから書き換えられてしまうため使わない。
+   実際のデータ保護はSupabase側のRLS(setup-auth.sql)が担う。ここでのUI制御は
+   「編集できるように見えるのに保存できない」という分かりにくい失敗を防ぐための表示上の配慮 */
+let isViewer=false;
+function computeIsViewer(user){
+  const meta=(user&&user.app_metadata)||{};
+  return meta.role==="viewer";
+}
 /* ログイン成功後の共通処理。マスター・設定を読み込んでアプリを開く */
 async function startSession(session){
   me=displayNameOf(session.user);
+  isViewer=computeIsViewer(session.user);
   if(!me){ $("loginMsg").textContent="このアカウントに表示名が設定されていません。管理者に連絡してください。"; return; }
   const m=await kvGet("master");
   if(m) master={...DEFAULT_MASTER, ...m};
   if(!Array.isArray(master.calendarOnly)) master.calendarOnly=[];
-  if(!master.statuses.includes("請求書提出")){
-    const idx=master.statuses.indexOf("完了");
-    if(idx>=0) master.statuses.splice(idx,0,"請求書提出"); else master.statuses.push("請求書提出");
-    await kvSet("master",master);
-  }
-  /* v3.11: アーカイブを廃止し、終了状態をステータスで表す。「失注」を最後に追加する */
-  if(!master.statuses.includes("失注")){
-    master.statuses.push("失注");
-    await kvSet("master",master);
+  /* 閲覧専用アカウントは書き込み権限が無いため、旧データの自動移行(kvSet)を行わない。
+     移行は通常メンバーの誰かが一度ログインすれば完了しているはずで、閲覧専用アカウントは
+     移行が必要な古いデータに最初に遭遇する側にはならない想定 */
+  if(!isViewer){
+    if(!master.statuses.includes("請求書提出")){
+      const idx=master.statuses.indexOf("完了");
+      if(idx>=0) master.statuses.splice(idx,0,"請求書提出"); else master.statuses.push("請求書提出");
+      await kvSet("master",master);
+    }
+    /* v3.11: アーカイブを廃止し、終了状態をステータスで表す。「失注」を最後に追加する */
+    if(!master.statuses.includes("失注")){
+      master.statuses.push("失注");
+      await kvSet("master",master);
+    }
+  }else if(!master.statuses.includes("請求書提出")||!master.statuses.includes("失注")){
+    /* 万一まだ移行されていないデータに閲覧専用アカウントが遭遇した場合、
+       ローカルの表示だけは補っておく(保存はしない。次に通常メンバーがログインすれば恒久化される) */
+    if(!master.statuses.includes("請求書提出")){
+      const idx=master.statuses.indexOf("完了");
+      if(idx>=0) master.statuses.splice(idx,0,"請求書提出"); else master.statuses.push("請求書提出");
+    }
+    if(!master.statuses.includes("失注")) master.statuses.push("失注");
   }
   settings=(await kvGet("settings"))||{};
   await enterApp();
@@ -733,19 +761,53 @@ async function tryLogin(){
   $("loginPw").value="";
   await startSession(data.session);
 }
+/* 閲覧専用アカウント向けに、保存・削除など書き込みを起こす操作を見た目上も無効化する。
+   本当のデータ保護はSupabase側のRLS(setup-auth.sql)が担っており、ここでの制御は
+   「押せそうなのに保存に失敗する」という分かりにくい体験を避けるための表示上の配慮に過ぎない。
+   タブ切替のたびに画面がinnerHTMLで丸ごと作り直されるため、MutationObserverで再描画のたびに掛け直す。 */
+function applyViewerLock(){
+  if(!isViewer) return;
+  document.querySelectorAll(".btn-primary, .btn-danger").forEach(b=>{
+    if(b.dataset.viewerSafe) return;
+    b.disabled=true; b.classList.add("viewer-disabled");
+  });
+  const extraWriteSelectors=[
+    "[data-case-reopen]","[data-kb-reopen]","#btnCustMergeOther","#btnIcs",
+    "[data-sch]","[data-bann]","[data-todo-t]","[data-busy]","[data-hneed]","[data-hgive]",
+    "[data-ns-work]","[data-ns-issue]","[data-mt-done]","#managerSelect","#mandayLimit",
+    "#googleClientId","#teamsTenantId","#teamsClientId",".ics-url","#meetingNote","#decisions",
+    "#calAutoToggle","#icsFile","#fileUploadInput",
+    "#caseModal input","#caseModal textarea","#caseModal select",
+    "#todoModal input","#todoModal textarea","#todoModal select",
+    "#lostModal input","#lostModal select",
+    "#customersPanel input:not(#custSearch)","#customersPanel textarea","#customersPanel select:not(#custSort)",
+  ];
+  document.querySelectorAll(extraWriteSelectors.join(",")).forEach(el=>{ el.disabled=true; });
+  document.querySelectorAll(".dnd-item[draggable]").forEach(el=>el.setAttribute("draggable","false"));
+}
+let viewerLockObserver=null;
+function startViewerLockObserver(){
+  if(!isViewer || viewerLockObserver) return;
+  applyViewerLock();
+  viewerLockObserver=new MutationObserver(()=>applyViewerLock());
+  /* モーダル(#caseModal等)は .container の外・bodyの直下にあるため、body全体を監視する */
+  viewerLockObserver.observe(document.body, {childList:true, subtree:true});
+}
 async function enterApp(){
   $("loginScreen").style.display="none";
   $("appHeader").style.display="flex";
   $("appNav").style.display="flex";
   $("btnLogout").textContent=`${me} ▾`;
+  $("viewerBadge").style.display=isViewer? "inline-block":"none";
   updateWeekLabel();
   await Promise.all([loadWeek(), loadCases(), loadAnnouncements(), loadTodos()]);
   renderBoard();
   switchTab("board");
   refreshFeedBadge();
   refreshTodoBadge();
-  /* 6時以降の初回起動なら裏で自動取込。失敗しても通常操作は妨げない */
-  maybeAutoImportCalendar().catch(e=>console.error("自動取込", e));
+  startViewerLockObserver();
+  /* 6時以降の初回起動なら裏で自動取込。失敗しても通常操作は妨げない(閲覧専用は行わない) */
+  if(!isViewer) maybeAutoImportCalendar().catch(e=>console.error("自動取込", e));
 }
 async function logout(){
   try{ await sb.auth.signOut(); }catch(e){ console.error(e); }
@@ -981,6 +1043,7 @@ async function toggleTodoDone(id, done){
 }
 /* 会議モードから、その人を担当にしてTODOを追加する */
 async function addTodoForMember(member, text){
+  if(isViewer) return;
   const row={text:text.trim(), assignee:member||null, due_date:null, case_id:null, done:false, created_by:me};
   if(!row.text) return;
   const {error}=await sb.from("todos").insert(row);
@@ -990,6 +1053,7 @@ async function addTodoForMember(member, text){
   setStatus("追加しました");
 }
 async function addTodo(){
+  if(isViewer) return;
   const text=$("todoInput").value.trim();
   if(!text){ alert("TODOの内容を入力してください。"); return; }
   const row={
