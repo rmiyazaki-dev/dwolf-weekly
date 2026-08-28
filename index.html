@@ -3764,7 +3764,7 @@ function renderSettings(){
         <span id="mfCfgState" style="font-size:12px; color:#6B7A87;">確認中…</span>
       </div>
       <div id="mfSyncMsg" style="font-size:12px; margin-top:6px;"></div>
-      <div style="font-size:11.5px; color:#6B7A87; margin-top:8px;">MFで見積書ができると案件管理タブと自動突合(できない場合は「要確認リスト」に表示)。請求書が発行されると進捗ステータスを「請求書提出」に、入金予定日を請求書の支払期限に、請求状況を「請求済」に自動更新します。MF側で入金が確認されると請求状況を「入金済」に自動更新します(この確認は紐付け済みの案件も毎回行うため、あとから入金が確定した場合も反映されます)。毎日朝6時頃に自動同期します(すぐ反映したい時は「今すぐ同期」を押してください)。</div>
+      <div style="font-size:11.5px; color:#6B7A87; margin-top:8px;">MFで見積書ができると案件管理タブと自動突合(できない場合は「要確認リスト」に表示)。紐付け後にMF側で見積の金額や作成日を改定した場合も、その都度システム側の見積額・見積日に反映されます。請求書が発行されると進捗ステータスを「請求書提出」に、入金予定日を請求書の支払期限に、請求状況を「請求済」に自動更新します。MF側で入金が確認されると請求状況を「入金済」に自動更新します(この確認は紐付け済みの案件も毎回行うため、あとから入金が確定した場合も反映されます)。毎日朝6時頃に自動同期します(すぐ反映したい時は「今すぐ同期」を押してください)。</div>
     </div>
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:8px;">運用ルール</h3>
@@ -3801,7 +3801,7 @@ function renderSettings(){
       const r=await fetch("/api/mf/sync?manual=1");
       const j=await r.json();
       if(!r.ok){ $("mfSyncMsg").innerHTML=`<span style="color:#B54747;">同期エラー:${esc(j.error||r.status)}</span>`; }
-      else{ $("mfSyncMsg").textContent=`同期完了:見積${j.quotesSeen}件(突合${j.quotesLinked}・要確認${j.quotesQueued})、請求書${j.billingsSeen}件(更新${j.billingsUpdated}・要確認${j.billingsQueued})`; }
+      else{ $("mfSyncMsg").textContent=`同期完了:見積${j.quotesSeen}件(突合${j.quotesLinked}・金額改定${j.quotesUpdated||0}・要確認${j.quotesQueued})、請求書${j.billingsSeen}件(更新${j.billingsUpdated}・要確認${j.billingsQueued})`; }
     }catch(e){ $("mfSyncMsg").innerHTML=`<span style="color:#B54747;">同期エラー:${esc(e.message||e)}</span>`; }
     btn.disabled=false; btn.textContent="今すぐ同期";
   });

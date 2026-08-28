@@ -158,7 +158,7 @@ module.exports = async function handler(req, res) {
     res.status(401).json({ error: "unauthorized" });
     return;
   }
-  const summary = { quotesSeen: 0, quotesLinked: 0, quotesQueued: 0, billingsSeen: 0, billingsUpdated: 0, billingsQueued: 0 };
+  const summary = { quotesSeen: 0, quotesLinked: 0, quotesUpdated: 0, quotesQueued: 0, billingsSeen: 0, billingsUpdated: 0, billingsQueued: 0 };
   try {
     const accessToken = await ensureAccessToken();
     if (!accessToken) {
@@ -182,7 +182,21 @@ module.exports = async function handler(req, res) {
       summary.quotesSeen++;
       const q = extractQuoteFields(raw);
       const existing = await db.findCaseByMfId("mfQuoteId", q.mfId);
-      if (existing) continue; // 全く同じ見積は処理済み
+      if (existing) {
+        /* 同じ見積書(mf_id不変)がMF側で金額改定・作成日変更された場合に追随する。
+           紐付け先の探索(タイトル一致・取引先一致など)はもう不要なのでここで完結させる */
+        const patch = {};
+        if (String(existing.quoteAmount || "") !== String(q.amount)) patch.quoteAmount = String(q.amount);
+        if (q.issueDate && String(existing.quoteDate || "") !== String(q.issueDate)) patch.quoteDate = q.issueDate;
+        if (Object.keys(patch).length) {
+          const merged = await db.updateCaseData(existing.id, patch);
+          activeCases = activeCases.map((x) => (x.id === existing.id ? { id: existing.id, ...merged } : x));
+          await db.insertCaseHistory(existing.id, "MF連携(自動)", "MF見積 金額改定", `${q.mfNumber || q.mfId}(見積${fmtYenLog(q.amount)})`);
+          await db.insertAuditLog("MF連携(自動)", "MF見積 金額改定", `${existing.name}:${q.mfNumber || q.mfId}`);
+          summary.quotesUpdated++;
+        }
+        continue;
+      }
 
       let target = null;
       let isOverwrite = false;
