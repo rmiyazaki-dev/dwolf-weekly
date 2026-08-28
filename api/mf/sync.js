@@ -239,10 +239,16 @@ module.exports = async function handler(req, res) {
         /* 請求書が既に紐付いている(=請求書提出まで進んでいる)案件には、見積の紐付けで
            ステータスを「見積提出」に巻き戻さない(請求書が先に登録されたケースを想定) */
         if (!target.mfBillingId) quotePatch.status = "見積提出";
+        /* 類似案件をMF上で複製して件名だけ変えた場合(=同じ取引先の既存案件へ、発行日が新しい見積として
+           上書きされるケース)、金額・作成日だけでなく案件名もMFの新しい件名に追随させる。
+           そうしないと金額は更新されるのに案件名だけ古いまま残ってしまう */
+        const renamed = isOverwrite && q.title && q.title.trim() && q.title.trim() !== target.name;
+        if (renamed) quotePatch.name = q.title.trim();
         const merged = await db.updateCaseData(target.id, quotePatch);
         activeCases = activeCases.map((x) => (x.id === target.id ? { id: target.id, ...merged } : x));
         const action = isOverwrite ? "MF見積 更新(新しい見積で上書き)" : "MF見積 自動突合";
-        await db.insertCaseHistory(target.id, "MF連携(自動)", action, `${q.mfNumber || q.mfId}(${q.partnerName || ""}・見積${fmtYenLog(q.amount)})`);
+        const renameNote = renamed ? `・案件名を更新(${target.name} → ${quotePatch.name})` : "";
+        await db.insertCaseHistory(target.id, "MF連携(自動)", action, `${q.mfNumber || q.mfId}(${q.partnerName || ""}・見積${fmtYenLog(q.amount)})${renameNote}`);
         await db.insertAuditLog("MF連携(自動)", action, `${target.name}:${q.mfNumber || q.mfId}`);
         await db.resolveReviewQueueItem("quote", q.mfId, target.id);
         summary.quotesLinked++;
