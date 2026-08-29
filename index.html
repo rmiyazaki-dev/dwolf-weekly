@@ -88,6 +88,9 @@
     .dnd-item { display: flex; align-items: center; gap: 8px; border: 1px solid #DCE0E3; border-radius: 6px; padding: 6px 10px; background: #fff; }
     .dnd-item.dragging { opacity: 0.4; }
     .dnd-item.dnd-over { border-color: #E8590C; background: #FFF7F2; }
+    .kb-card[draggable="true"] { cursor: grab; }
+    .kb-card.dragging { opacity: 0.4; }
+    .kb-col.dnd-over { outline: 2px dashed #E8590C; outline-offset: -2px; background: #FFF7F2; border-radius: 0 0 10px 10px; }
     .drag-handle { cursor: grab; color: #9AA4AC; font-size: 15px; line-height: 1; user-select: none; padding: 0 2px; }
     .dnd-item:active .drag-handle { cursor: grabbing; }
     .btn-move { padding: 1px 7px; font-size: 11px; line-height: 1.5; }
@@ -263,7 +266,7 @@
           <select id="kanbanFilterOwner"><option>全員</option></select>
         </div>
       </div>
-      <div class="alert alert-info" style="font-size:12px;">◀ ▶ ボタンでステータスを移動できます(変更は履歴に自動記録されます)。担当の絞り込みは営業担当・フライト担当を横断して検索します。<br>「完了」「失注」もステータスなので、それぞれの列に表示されます。進行中に戻すときは各カードの「戻す」を押してください。</div>
+      <div class="alert alert-info" style="font-size:12px;">カードをドラッグ&ドロップで別の列に移動できます(◀ ▶ ボタンでも移動可。変更は履歴に自動記録されます)。担当の絞り込みは営業担当・フライト担当を横断して検索します。<br>「完了」「失注」もステータスなので、それぞれの列にドロップできます(失注は理由の入力画面が開きます)。進行中に戻すときは各カードの「戻す」を押してください。</div>
       <div id="kanbanBoard" style="display:flex; gap:10px; overflow-x:auto; align-items:flex-start; padding-bottom:8px;"></div>
     </div>
 
@@ -2500,15 +2503,16 @@ function renderKanban(){
   $("kanbanBoard").innerHTML=master.statuses.map((st,si)=>{
     const items=active.filter(c=>c.status===st);
     return `
-    <div style="min-width:230px; width:230px; flex-shrink:0; background:#fff; border:1px solid #DCE0E3; border-radius:10px;">
+    <div class="kb-col" data-kb-col="${esc(st)}" style="min-width:230px; width:230px; flex-shrink:0; background:#fff; border:1px solid #DCE0E3; border-radius:10px;">
       <div style="background:#17242F; color:#fff; border-radius:10px 10px 0 0; padding:8px 10px; font-size:12.5px; font-weight:800; display:flex; justify-content:space-between;">
         <span>${esc(st)}</span><span style="color:#9FB0BC;">${items.length}</span>
       </div>
-      <div style="padding:8px; display:grid; gap:8px; min-height:60px;">
-        ${items.length===0? `<div style="color:#B0B7BD; font-size:11.5px; text-align:center; padding:10px 0;">なし</div>` : items.map(c=>{
+      <div data-kb-dropzone style="padding:8px; display:grid; gap:8px; min-height:60px;">
+        ${items.length===0? `<div style="color:#B0B7BD; font-size:11.5px; text-align:center; padding:10px 0; pointer-events:none;">なし</div>` : items.map(c=>{
           const d=dueInfo(c);
+          const draggable=!isClosedCase(c);
           return `
-          <div style="border:1px solid #DCE0E3; border-left:4px solid ${isLostCase(c)?"#9B2C2C":catColor(c.category)}; border-radius:7px; padding:8px; ${isClosedCase(c)?"opacity:0.6; background:#FAFAF9;":""}">
+          <div class="kb-card" ${draggable?`draggable="true" data-kb-card="${c.id}"`:""} style="border:1px solid #DCE0E3; border-left:4px solid ${isLostCase(c)?"#9B2C2C":catColor(c.category)}; border-radius:7px; padding:8px; ${isClosedCase(c)?"opacity:0.6; background:#FAFAF9;":""}">
             <div style="font-size:12.5px; font-weight:800; line-height:1.4;">${esc(c.name)}
               ${isLostCase(c)&&c.lostReason?`<span class="chip" style="background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C; margin-left:4px;">${esc(c.lostReason)}</span>`:""}
             </div>
@@ -2525,6 +2529,7 @@ function renderKanban(){
           </div>`;}).join("")}
       </div>
     </div>`;}).join("");
+  bindKanbanDnd();
   /* 完了・失注のカードは◀▶で動かさず、「戻す」で進行中に復帰させる */
   document.querySelectorAll("[data-kb-reopen]").forEach(b=>b.addEventListener("click",()=>reopenCase(+b.dataset.kbReopen)));
   document.querySelectorAll("[data-kb-move]").forEach(b=>b.addEventListener("click",async ()=>{
@@ -2544,6 +2549,57 @@ function renderKanban(){
     await loadCustomers();
     openCase(+b.dataset.kbEdit);
   }));
+}
+/* 案件のステータスを変更する。完了・失注は専用の記録処理(元ステータスの保持・失注理由の入力)を
+   通すため、案件カードのボタンと同じ関数(closeCase/openLostModal)を再利用する */
+async function moveCaseToStatus(id, newStatus){
+  const c=cases.find(x=>x.id===id); if(!c) return;
+  if(isClosedCase(c) || c.status===newStatus) return;
+  if(newStatus===LOST_STATUS){ openLostModal(id); return; }
+  if(newStatus===DONE_STATUS){ await closeCase(id); return; }
+  const old=c.status;
+  c.status=newStatus; c.updatedAt=Date.now();
+  await saveCaseRow(c);
+  await logCaseHistory(c.id, "ステータス変更", `${old} → ${newStatus}`);
+  await logAction("ステータス変更", `${c.name}:${old} → ${newStatus}`);
+  renderKanban(); setStatus("保存しました");
+}
+/* カンバンのドラッグ&ドロップ:カードを別のステータス列にドロップすると進捗が変わる */
+function bindKanbanDnd(){
+  let draggingId=null;
+  document.querySelectorAll("[data-kb-card]").forEach(card=>{
+    card.addEventListener("dragstart",(e)=>{
+      draggingId=+card.dataset.kbCard;
+      card.classList.add("dragging");
+      e.dataTransfer.effectAllowed="move";
+      try{ e.dataTransfer.setData("text/plain", String(draggingId)); }catch(_){}
+    });
+    card.addEventListener("dragend",()=>{
+      card.classList.remove("dragging");
+      document.querySelectorAll(".kb-col.dnd-over").forEach(x=>x.classList.remove("dnd-over"));
+      draggingId=null;
+    });
+  });
+  document.querySelectorAll("[data-kb-col]").forEach(col=>{
+    /* dragleaveは列内の子要素間を移動しただけでもバブリングで誤発火するため使わない。
+       dragoverのたびに「今カーソルが乗っている列だけ」ハイライトし直す方式にする */
+    col.addEventListener("dragover",(e)=>{
+      if(draggingId==null) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect="move";
+      if(!col.classList.contains("dnd-over")){
+        document.querySelectorAll(".kb-col.dnd-over").forEach(x=>x.classList.remove("dnd-over"));
+        col.classList.add("dnd-over");
+      }
+    });
+    col.addEventListener("drop",async (e)=>{
+      e.preventDefault();
+      document.querySelectorAll(".kb-col.dnd-over").forEach(x=>x.classList.remove("dnd-over"));
+      if(draggingId==null) return;
+      const id=draggingId; draggingId=null;
+      await moveCaseToStatus(id, col.dataset.kbCol);
+    });
+  });
 }
 
 /* ---------- 会計年度(6月末決算=7月開始) ---------- */
