@@ -3270,7 +3270,9 @@ function renderDashboard(){
     ? storedTarget : DEFAULT_CURRENT_YEAR_SALES_TARGET;
   /* 売上実績は「入金済」かつ入金予定日が今期に属する案件を入金ベースとして扱う。
      受注額の入力だけでは売上に含めず、入金済への更新後に初めて反映する。 */
-  const annualActual=fyStats(annualFY).paidAmt;
+  const annualStats=fyStats(annualFY);
+  const annualActual=annualStats.paidAmt;
+  const annualOrderAmount=annualStats.orderAmt;
   const annualScale=Math.max(annualActual, annualPreviousActual, annualTarget, 1);
   const annualActualPct=Math.min(100, Math.max(0, annualActual/annualScale*100));
   const annualPreviousPct=Math.min(98, Math.max(2, annualPreviousActual/annualScale*100));
@@ -3478,7 +3480,7 @@ function renderDashboard(){
       </div>
       <div class="annual-sales-content">
         <div class="annual-sales-metrics">
-          <div class="annual-sales-metric"><span>売上実績（入金ベース）</span><strong>${annualYen(annualActual)}</strong></div>
+          <div class="annual-sales-metric"><span>今期受注額</span><strong>${annualYen(annualOrderAmount)}</strong><small>${annualStats.orderCount}件・受注日ベース</small></div>
           <div class="annual-sales-metric"><span>今年度売上目標</span><strong>${annualYen(annualTarget)}</strong></div>
           <div class="annual-sales-metric"><span>目標達成率</span><strong>${annualTargetAchievement}%</strong></div>
           <div class="annual-sales-metric"><span>昨対比</span><strong>${annualYoYIndex==null?"―":`${annualYoYIndex}%`}</strong><small>前年差 ${signedPercent(annualYoYChange)}</small></div>
@@ -3494,7 +3496,7 @@ function renderDashboard(){
           <div><span>今月時点の目標ペース</span><strong>${annualYen(annualPaceTarget)}</strong></div>
           <div><span>売上ペース比</span><strong>${annualPaceAchievement}%</strong><small>${annualPaceGap>=0?"目安超過":"目安まで"} ${annualYen(Math.abs(annualPaceGap))}</small></div>
         </div>
-        <div class="annual-sales-source">売上実績は、入金予定日が今期に入り、入金状況が「入金済」の案件を自動集計しています。</div>
+        <div class="annual-sales-source">売上実績は入金予定日が今期で入金状況が「入金済」の案件、受注額は受注日が今期の案件を自動集計しています。</div>
         <div class="annual-sales-edit">
           <label>昨年度売上実績（万円）<input type="number" id="dashboardSalesActual" min="0" step="1" value="${Math.round(annualPreviousActual/10000)}"></label>
           <label>今年度売上目標（万円）<input type="number" id="dashboardSalesTarget" min="1" step="1" value="${Math.round(annualTarget/10000)}"></label>
