@@ -409,6 +409,73 @@
     .dashboard-kicker { color: #D4AF37; font-size: 9px; font-weight: 900; letter-spacing: .18em; }
     .dashboard-overview-head h3 { margin-top: 3px; color: #0D1B2A; font-size: 17px; font-weight: 900; }
     .dashboard-overview-head p { color: #6B7280; font-size: 11px; }
+    .annual-sales-card {
+      display: grid;
+      grid-template-columns: minmax(300px, .8fr) minmax(0, 1.2fr);
+      padding: 0 !important;
+      margin: 0 0 18px !important;
+      overflow: hidden;
+    }
+    .annual-sales-summary {
+      padding: 21px 22px;
+      color: #FFFFFF;
+      background: linear-gradient(145deg, #0D1B2A, #1B263B);
+    }
+    .annual-sales-kicker { color: #D4AF37; font-size: 9px; font-weight: 900; letter-spacing: .16em; }
+    .annual-sales-summary h3 { margin: 4px 0 15px; color: #FFFFFF; font-size: 18px; font-weight: 900; }
+    .annual-sales-main-value { font-size: clamp(28px, 3vw, 40px); font-weight: 900; line-height: 1.1; letter-spacing: -.03em; }
+    .annual-sales-main-label { margin-top: 4px; color: #D1D5DB; font-size: 10.5px; }
+    .annual-sales-diff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 17px; }
+    .annual-sales-diff {
+      padding: 10px 11px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.09);
+      border-radius: 8px;
+    }
+    .annual-sales-diff span { display: block; color: #D1D5DB; font-size: 9.5px; }
+    .annual-sales-diff strong { display: block; margin-top: 2px; color: #FFFFFF; font-size: 15px; }
+    .annual-sales-content { padding: 20px 22px; }
+    .annual-sales-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .annual-sales-metric { padding: 10px 12px; background: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 9px; }
+    .annual-sales-metric span { display: block; color: #6B7280; font-size: 9.5px; font-weight: 700; }
+    .annual-sales-metric strong { display: block; margin-top: 2px; color: #111827; font-size: 17px; }
+    .annual-sales-metric small { display: block; margin-top: 1px; color: #6B7280; font-size: 8.5px; }
+    .annual-sales-visual { position: relative; margin: 35px 5px 30px; }
+    .annual-sales-track { height: 18px; overflow: hidden; background: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 999px; }
+    .annual-sales-actual-bar { height: 100%; min-width: 0; background: linear-gradient(90deg, #2563EB, #16A34A); border-radius: inherit; }
+    .annual-sales-marker { position: absolute; top: -8px; width: 2px; height: 34px; transform: translateX(-50%); background: #D4AF37; }
+    .annual-sales-marker::before { content: ''; position: absolute; top: -2px; left: 50%; width: 8px; height: 8px; transform: translate(-50%,-50%); background: #D4AF37; border-radius: 50%; }
+    .annual-sales-marker span { position: absolute; top: 33px; left: 50%; transform: translateX(-50%); color: #6B7280; font-size: 9px; font-weight: 700; white-space: nowrap; }
+    .annual-sales-marker.target { background: #0D1B2A; }
+    .annual-sales-marker.target::before { background: #0D1B2A; }
+    .annual-sales-marker.pace { background: #2563EB; }
+    .annual-sales-marker.pace::before { background: #2563EB; }
+    .annual-sales-marker.pace span { top: -22px; color: #2563EB; }
+    .annual-sales-pace-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 9px;
+      margin-bottom: 10px;
+      padding: 10px 12px;
+      background: rgba(37,99,235,.06);
+      border: 1px solid rgba(37,99,235,.18);
+      border-radius: 9px;
+    }
+    .annual-sales-pace-summary span { display: block; color: #6B7280; font-size: 9px; font-weight: 700; }
+    .annual-sales-pace-summary strong { display: block; margin-top: 1px; color: #0D1B2A; font-size: 15px; }
+    .annual-sales-pace-summary small { display: block; margin-top: 1px; color: #2563EB; font-size: 8.5px; }
+    .annual-sales-source { margin: -5px 0 12px; color: #6B7280; font-size: 9.5px; line-height: 1.55; }
+    .annual-sales-edit {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      align-items: end;
+      gap: 9px;
+      padding-top: 14px;
+      border-top: 1px solid #D1D5DB;
+    }
+    .annual-sales-edit label { color: #6B7280; font-size: 9.5px; font-weight: 800; }
+    .annual-sales-edit input { width: 100%; margin-top: 4px; }
+    .annual-sales-save-state { grid-column: 1 / -1; min-height: 15px; color: #16A34A; font-size: 10px; }
     .dashboard-primary-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -511,6 +578,8 @@
       body.app-mode nav .badge { top: 2px; right: 0; transform: none; }
       body.app-mode main { padding: 18px 16px 60px; }
       .dashboard-primary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .annual-sales-card { grid-template-columns: 1fr; }
+      .annual-sales-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .dashboard-ops-grid, .dashboard-analysis-grid { grid-template-columns: 1fr; }
       .dashboard-analysis-grid > .card:last-child { grid-column: auto; }
     }
@@ -524,6 +593,11 @@
       .modal-cols { grid-template-columns: 1fr; }
       .login-box { padding: 28px 22px 24px; }
       .dashboard-primary-grid, .dashboard-secondary-grid { grid-template-columns: 1fr 1fr; gap: 9px; }
+      .annual-sales-content, .annual-sales-summary { padding: 17px 15px; }
+      .annual-sales-metrics { grid-template-columns: 1fr; }
+      .annual-sales-pace-summary { grid-template-columns: 1fr; }
+      .annual-sales-edit { grid-template-columns: 1fr 1fr; }
+      .annual-sales-edit .btn { grid-column: 1 / -1; }
       .dashboard-primary-grid .kpi-card, .dashboard-secondary-grid .kpi-card { min-height: 92px; padding: 14px 13px !important; }
       .dashboard-primary-grid .kpi-card > div:nth-child(2) { font-size: 20px !important; }
       .dashboard-secondary-grid .kpi-card:last-child { grid-column: 1 / -1; }
@@ -1212,6 +1286,7 @@ function applyViewerLock(){
     "[data-ns-work]","[data-ns-issue]","[data-mt-done]","#managerSelect","#mandayLimit",
     "#googleClientId","#teamsTenantId","#teamsClientId",".ics-url","#meetingNote","#decisions",
     "#calAutoToggle","#icsFile","#fileUploadInput",
+    "#dashboardSalesActual","#dashboardSalesTarget",
     "#caseModal input","#caseModal textarea","#caseModal select",
     "#todoModal input","#todoModal textarea","#todoModal select",
     "#lostModal input","#lostModal select",
@@ -3036,6 +3111,8 @@ function bindKanbanDnd(){
 
 /* ---------- 会計年度(6月末決算=7月開始) ---------- */
 const FY_START_MONTH = 7;
+const DEFAULT_PREVIOUS_YEAR_SALES = 26000000;
+const DEFAULT_CURRENT_YEAR_SALES_TARGET = 50000000;
 function fyOf(dateStr){
   if(!dateStr) return null;
   const y=+String(dateStr).slice(0,4), m=+String(dateStr).slice(5,7);
@@ -3180,6 +3257,43 @@ function renderDashboard(){
   };
   const cur=fyStats(dashFY);
   const prev=fyStats(dashFY-1);
+  /* 年度売上の基準値は案件集計とは別に、ダッシュボードから手入力して年度ごとに保存する。
+     初期値は前年度実績2,600万円・今年度目標5,000万円。 */
+  const annualFY=currentFY();
+  const annualPlans=settings.dashboardSalesPlanByFY||{};
+  const annualPlan=annualPlans[String(annualFY)]||{};
+  const storedPreviousActual=Number(annualPlan.previousActual);
+  const storedTarget=Number(annualPlan.target);
+  const annualPreviousActual=Number.isFinite(storedPreviousActual)&&storedPreviousActual>=0
+    ? storedPreviousActual : DEFAULT_PREVIOUS_YEAR_SALES;
+  const annualTarget=Number.isFinite(storedTarget)&&storedTarget>0
+    ? storedTarget : DEFAULT_CURRENT_YEAR_SALES_TARGET;
+  /* 売上実績は「入金済」かつ入金予定日が今期に属する案件を入金ベースとして扱う。
+     受注額の入力だけでは売上に含めず、入金済への更新後に初めて反映する。 */
+  const annualActual=fyStats(annualFY).paidAmt;
+  const annualScale=Math.max(annualActual, annualPreviousActual, annualTarget, 1);
+  const annualActualPct=Math.min(100, Math.max(0, annualActual/annualScale*100));
+  const annualPreviousPct=Math.min(98, Math.max(2, annualPreviousActual/annualScale*100));
+  const annualTargetPct=Math.min(98, Math.max(2, annualTarget/annualScale*100));
+  const annualTargetAchievement=Math.round(annualActual/annualTarget*100);
+  const annualRemaining=annualTarget-annualActual;
+  const annualYoYIndex=annualPreviousActual
+    ? Math.round(annualActual/annualPreviousActual*100) : null;
+  const annualYoYChange=annualPreviousActual
+    ? Math.round((annualActual-annualPreviousActual)/annualPreviousActual*100) : null;
+  /* 7月を1か月目として今月までを経過月数に含め、年間目標を12等分した
+     累計目安と比較する。日割りではなく月次会議で扱いやすい月単位の指標。 */
+  const now=new Date();
+  const annualElapsedMonths=Math.min(12, Math.max(1,
+    (now.getFullYear()-annualFY)*12 + now.getMonth()-(FY_START_MONTH-1)+1));
+  const annualPaceTarget=Math.round(annualTarget*annualElapsedMonths/12);
+  const annualPacePct=Math.min(98, Math.max(2, annualPaceTarget/annualScale*100));
+  const annualPaceAchievement=annualPaceTarget
+    ? Math.round(annualActual/annualPaceTarget*100) : 0;
+  const annualPaceGap=annualActual-annualPaceTarget;
+  const annualYen=(v)=>fmtYen(v)||"¥0";
+  const signedYen=(v)=>`${v>=0?"+":"-"}${annualYen(Math.abs(v))}`;
+  const signedPercent=(v)=>v==null?"―":`${v>=0?"+":""}${v}%`;
   const diffTxt=(a,b)=>{
     if(!b) return "";
     const r=Math.round((a-b)/b*100);
@@ -3351,6 +3465,44 @@ function renderDashboard(){
     </div>`;
 
   $("dashboardPanel").innerHTML=`
+    <div class="card annual-sales-card">
+      <div class="annual-sales-summary">
+        <div class="annual-sales-kicker">ANNUAL SALES PERFORMANCE</div>
+        <h3>${annualFY}年度 売上実績</h3>
+        <div class="annual-sales-main-value">${annualYen(annualActual)}</div>
+        <div class="annual-sales-main-label">今年度売上実績（入金済・入金予定日ベース）</div>
+        <div class="annual-sales-diff-grid">
+          <div class="annual-sales-diff"><span>${annualRemaining>=0?"目標まで":"目標超過"}</span><strong>${annualYen(Math.abs(annualRemaining))}</strong></div>
+          <div class="annual-sales-diff"><span>昨年度実績との差</span><strong>${signedYen(annualActual-annualPreviousActual)}</strong></div>
+        </div>
+      </div>
+      <div class="annual-sales-content">
+        <div class="annual-sales-metrics">
+          <div class="annual-sales-metric"><span>売上実績（入金ベース）</span><strong>${annualYen(annualActual)}</strong></div>
+          <div class="annual-sales-metric"><span>今年度売上目標</span><strong>${annualYen(annualTarget)}</strong></div>
+          <div class="annual-sales-metric"><span>目標達成率</span><strong>${annualTargetAchievement}%</strong></div>
+          <div class="annual-sales-metric"><span>昨対比</span><strong>${annualYoYIndex==null?"―":`${annualYoYIndex}%`}</strong><small>前年差 ${signedPercent(annualYoYChange)}</small></div>
+        </div>
+        <div class="annual-sales-visual" aria-label="入金ベースの今年度売上実績、昨年度実績、今年度目標の比較">
+          <div class="annual-sales-track"><div class="annual-sales-actual-bar" style="width:${annualActualPct}%;"></div></div>
+          ${annualElapsedMonths<12?`<div class="annual-sales-marker pace" style="left:${annualPacePct}%;"><span>${annualElapsedMonths}か月目安 ${Math.round(annualPaceTarget/10000).toLocaleString("ja-JP")}万円</span></div>`:""}
+          <div class="annual-sales-marker" style="left:${annualPreviousPct}%;"><span>昨年度 ${Math.round(annualPreviousActual/10000).toLocaleString("ja-JP")}万円</span></div>
+          <div class="annual-sales-marker target" style="left:${annualTargetPct}%;"><span>目標 ${Math.round(annualTarget/10000).toLocaleString("ja-JP")}万円</span></div>
+        </div>
+        <div class="annual-sales-pace-summary">
+          <div><span>期初からの経過</span><strong>${annualElapsedMonths} / 12か月</strong></div>
+          <div><span>今月時点の目標ペース</span><strong>${annualYen(annualPaceTarget)}</strong></div>
+          <div><span>売上ペース比</span><strong>${annualPaceAchievement}%</strong><small>${annualPaceGap>=0?"目安超過":"目安まで"} ${annualYen(Math.abs(annualPaceGap))}</small></div>
+        </div>
+        <div class="annual-sales-source">売上実績は、入金予定日が今期に入り、入金状況が「入金済」の案件を自動集計しています。</div>
+        <div class="annual-sales-edit">
+          <label>昨年度売上実績（万円）<input type="number" id="dashboardSalesActual" min="0" step="1" value="${Math.round(annualPreviousActual/10000)}"></label>
+          <label>今年度売上目標（万円）<input type="number" id="dashboardSalesTarget" min="1" step="1" value="${Math.round(annualTarget/10000)}"></label>
+          <button class="btn btn-primary" id="btnDashboardSalesSave">保存</button>
+          <div id="dashboardSalesSaveMsg" class="annual-sales-save-state" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>
     <div class="dashboard-overview-head">
       <div><div class="dashboard-kicker">DASHBOARD OVERVIEW</div><h3>今週のサマリー</h3></div>
       <p>${dashboardDate}</p>
@@ -3416,6 +3568,36 @@ function renderDashboard(){
       </table>`}
     </div>`;
   $("dashFYSelect").addEventListener("change", ()=>{ dashFY=+$("dashFYSelect").value; renderDashboard(); });
+  $("btnDashboardSalesSave").addEventListener("click", async ()=>{
+    const previousMan=Number($("dashboardSalesActual").value);
+    const targetMan=Number($("dashboardSalesTarget").value);
+    const msg=$("dashboardSalesSaveMsg");
+    if(!Number.isFinite(previousMan)||previousMan<0||!Number.isFinite(targetMan)||targetMan<=0){
+      msg.style.color="#EF4444";
+      msg.textContent="実績は0万円以上、目標は1万円以上で入力してください。";
+      return;
+    }
+    const btn=$("btnDashboardSalesSave");
+    btn.disabled=true;
+    msg.style.color="#6B7280";
+    msg.textContent="保存中…";
+    const nextPlans={...(settings.dashboardSalesPlanByFY||{})};
+    nextPlans[String(annualFY)]={
+      previousActual:Math.round(previousMan*10000),
+      target:Math.round(targetMan*10000),
+    };
+    const nextSettings={...settings, dashboardSalesPlanByFY:nextPlans};
+    const ok=await kvSet("settings",nextSettings);
+    if(!ok){
+      btn.disabled=false;
+      msg.style.color="#EF4444";
+      msg.textContent="保存に失敗しました。通信状態を確認してください。";
+      return;
+    }
+    settings=nextSettings;
+    setStatus("年度売上の実績・目標を保存しました");
+    renderDashboard();
+  });
   document.querySelectorAll("[data-dash-bar]").forEach(el=>el.addEventListener("click", ()=>{
     const f=barPredicates[el.dataset.dashBar];
     if(!f) return;
