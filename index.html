@@ -5,93 +5,95 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
   <title>D-BORD 週次オペレーションボード</title>
+  <link rel="icon" type="image/png" href="d-bord-favicon.png">
+  <link rel="apple-touch-icon" href="d-bord-favicon.png">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.4/lib/msal-browser.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Noto Sans JP','Hiragino Kaku Gothic ProN','Yu Gothic Medium',sans-serif; background: #F2F3F1; color: #17242F; }
+    body { font-family: 'Noto Sans JP','Hiragino Kaku Gothic ProN','Yu Gothic Medium',sans-serif; background: #F3F4F6; color: #0D1B2A; }
 
     .container { min-height: 100vh; display: flex; flex-direction: column; }
-    header { background: #17242F; color: #fff; padding: 10px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; position: sticky; top: 0; z-index: 40; }
+    header { background: #0D1B2A; color: #FFFFFF; padding: 10px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; position: sticky; top: 0; z-index: 40; }
     header .logo { display: flex; align-items: baseline; gap: 8px; }
     header .logo-main { font-weight: 900; font-size: 18px; letter-spacing: 2px; }
-    header .logo-sub { font-size: 10px; color: #9FB0BC; letter-spacing: 1px; }
-    header .week-nav { display: flex; align-items: center; gap: 6px; background: #22333F; border-radius: 6px; padding: 4px 8px; }
-    header .week-nav button { background: none; border: none; color: #fff; cursor: pointer; font-size: 15px; padding: 0 4px; }
+    header .logo-sub { font-size: 10px; color: #D1D5DB; letter-spacing: 1px; }
+    header .week-nav { display: flex; align-items: center; gap: 6px; background: #1B263B; border-radius: 6px; padding: 4px 8px; }
+    header .week-nav button { background: none; border: none; color: #FFFFFF; cursor: pointer; font-size: 15px; padding: 0 4px; }
     header .week-nav .label { font-size: 13px; font-weight: 700; }
     header .status { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-    header .status-msg { font-size: 11px; color: #9FB0BC; min-width: 70px; text-align: right; }
-    header .hbtn { background: #22333F; border: 1px solid #33475466; color: #fff; border-radius: 5px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+    header .status-msg { font-size: 11px; color: #D1D5DB; min-width: 70px; text-align: right; }
+    header .hbtn { background: #1B263B; border: 1px solid rgba(209,213,219,.4); color: #FFFFFF; border-radius: 5px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
 
-    nav { background: #fff; border-bottom: 1px solid #DCE0E3; display: flex; overflow-x: auto; position: sticky; top: 48px; z-index: 39; }
-    nav button { background: none; border: none; border-bottom: 3px solid transparent; padding: 11px 14px; font-size: 13.5px; font-weight: 500; color: #3D4F5E; cursor: pointer; font-family: inherit; white-space: nowrap; position: relative; }
-    nav button.active { border-bottom-color: #E8590C; font-weight: 800; color: #17242F; }
-    nav button:hover { background: #FAFAF9; }
-    nav .badge { position: absolute; top: 5px; right: 2px; background: #E8590C; color: #fff; font-size: 9px; font-weight: 800; border-radius: 8px; padding: 1px 5px; }
+    nav { background: #FFFFFF; border-bottom: 1px solid #D1D5DB; display: flex; overflow-x: auto; position: sticky; top: 48px; z-index: 39; }
+    nav button { background: none; border: none; border-bottom: 3px solid transparent; padding: 11px 14px; font-size: 13.5px; font-weight: 500; color: #374151; cursor: pointer; font-family: inherit; white-space: nowrap; position: relative; }
+    nav button.active { border-bottom-color: #D4AF37; font-weight: 800; color: #0D1B2A; }
+    nav button:hover { background: #F3F4F6; }
+    nav .badge { position: absolute; top: 5px; right: 2px; background: #D4AF37; color: #FFFFFF; font-size: 9px; font-weight: 800; border-radius: 8px; padding: 1px 5px; }
 
     main { flex: 1; max-width: 1120px; margin: 0 auto; width: 100%; padding: 14px 16px 60px; }
     .section { display: none; }
     .section.active { display: block; }
 
     .section-header { display: flex; align-items: center; gap: 8px; margin: 18px 0 10px; flex-wrap: wrap; }
-    .section-num { background: #17242F; color: #fff; font-size: 11px; font-weight: 800; border-radius: 3px; padding: 2px 7px; letter-spacing: 1px; }
-    .section-title { font-size: 15px; font-weight: 800; color: #17242F; margin: 0; }
+    .section-num { background: #0D1B2A; color: #FFFFFF; font-size: 11px; font-weight: 800; border-radius: 3px; padding: 2px 7px; letter-spacing: 1px; }
+    .section-title { font-size: 15px; font-weight: 800; color: #0D1B2A; margin: 0; }
 
-    .card { background: #fff; border: 1px solid #DCE0E3; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+    .card { background: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
     .chip { border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 700; white-space: nowrap; display: inline-block; }
 
-    table.grid { border-collapse: collapse; width: 100%; margin-bottom: 14px; background: #fff; border: 1px solid #DCE0E3; }
-    table.grid th { background: #17242F; color: #fff; font-size: 12px; font-weight: 700; padding: 8px 10px; text-align: left; }
-    table.grid td { border-top: 1px solid #DCE0E3; border-left: 1px solid #DCE0E3; padding: 6px 8px; font-size: 13px; vertical-align: top; }
+    table.grid { border-collapse: collapse; width: 100%; margin-bottom: 14px; background: #FFFFFF; border: 1px solid #D1D5DB; }
+    table.grid th { background: #0D1B2A; color: #FFFFFF; font-size: 12px; font-weight: 700; padding: 8px 10px; text-align: left; }
+    table.grid td { border-top: 1px solid #D1D5DB; border-left: 1px solid #D1D5DB; padding: 6px 8px; font-size: 13px; vertical-align: top; }
 
-    input[type="text"], input[type="password"], input[type="number"], input[type="date"], textarea, select { box-sizing: border-box; border: 1px solid #DCE0E3; border-radius: 6px; padding: 7px 9px; font-size: 13px; font-family: inherit; background: #fff; color: #17242F; }
-    input:focus, textarea:focus, select:focus { outline: none; border-color: #E8590C; }
+    input[type="text"], input[type="password"], input[type="number"], input[type="date"], textarea, select { box-sizing: border-box; border: 1px solid #D1D5DB; border-radius: 6px; padding: 7px 9px; font-size: 13px; font-family: inherit; background: #FFFFFF; color: #0D1B2A; }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: #D4AF37; }
     textarea { resize: vertical; width: 100%; }
     .w100 { width: 100%; }
 
     .btn { border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; border: none; }
-    .btn-primary { background: #E8590C; color: #fff; }
-    .btn-primary:hover { background: #d4760f; }
-    .btn-secondary { background: #fff; border: 1px solid #DCE0E3; color: #17242F; }
-    .btn-secondary:hover { background: #FAFAF9; }
+    .btn-primary { background: #D4AF37; color: #FFFFFF; }
+    .btn-primary:hover { background: #D4AF37; }
+    .btn-secondary { background: #FFFFFF; border: 1px solid #D1D5DB; color: #0D1B2A; }
+    .btn-secondary:hover { background: #F3F4F6; }
     .btn-small { padding: 2px 8px; font-size: 12px; }
-    .btn-danger { color: #B54747; }
+    .btn-danger { color: #EF4444; }
 
-    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+    .modal { display: none; position: fixed; inset: 0; background: rgba(13,27,42,.5); align-items: center; justify-content: center; z-index: 50; padding: 16px; }
     .modal.show { display: flex; }
-    .modal-content { background: #fff; border-radius: 12px; padding: 18px; width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; }
+    .modal-content { background: #FFFFFF; border-radius: 12px; padding: 18px; width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; }
     .modal-title { font-size: 16px; font-weight: 800; margin-bottom: 12px; }
     .modal-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-    .todo-item { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px solid #EEE; }
+    .todo-item { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px solid #D1D5DB; }
     .viewer-disabled { opacity: .4 !important; cursor: not-allowed !important; pointer-events: none !important; }
-    input:disabled, textarea:disabled, select:disabled { background: #F2F3F1; color: #6B7A87; cursor: not-allowed; }
-    .todo-item.done span { text-decoration: line-through; color: #9AA4AC; }
+    input:disabled, textarea:disabled, select:disabled { background: #F3F4F6; color: #6B7280; cursor: not-allowed; }
+    .todo-item.done span { text-decoration: line-through; color: #6B7280; }
 
     .alert { padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 12.5px; line-height: 1.7; }
-    .alert-info { background: #FFF0E6; border: 1px solid #E8590C33; color: #B34608; }
-    .alert-warning { background: #FFF8E6; border: 1px solid #E5C56A; color: #7A5B00; }
-    .alert-error { background: #FDECEC; border: 1px solid #E5A0A0; color: #9B2C2C; }
+    .alert-info { background: rgba(212,175,55,.12); border: 1px solid rgba(212,175,55,.20); color: #F59E0B; }
+    .alert-warning { background: rgba(245,158,11,.09); border: 1px solid rgba(245,158,11,.32); color: #F59E0B; }
+    .alert-error { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.30); color: #EF4444; }
 
-    .feed-item { border-left: 4px solid #E8590C; }
-    .feed-meta { font-size: 11.5px; color: #6B7A87; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    .read-chip { background: #EEF3F0; border: 1px solid #D5E0DA; color: #2F6A4F; border-radius: 10px; padding: 1px 8px; font-size: 10.5px; }
-    .unread-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #E8590C; }
+    .feed-item { border-left: 4px solid #D4AF37; }
+    .feed-meta { font-size: 11.5px; color: #6B7280; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .read-chip { background: rgba(22,163,74,.08); border: 1px solid rgba(22,163,74,.28); color: #16A34A; border-radius: 10px; padding: 1px 8px; font-size: 10.5px; }
+    .unread-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #D4AF37; }
 
-    .comment-item { border-top: 1px solid #EEE; padding: 8px 2px; font-size: 13px; }
-    .comment-meta { font-size: 11px; color: #6B7A87; margin-bottom: 2px; }
+    .comment-item { border-top: 1px solid #D1D5DB; padding: 8px 2px; font-size: 13px; }
+    .comment-meta { font-size: 11px; color: #6B7280; margin-bottom: 2px; }
 
-    .audit-row { font-size: 12px; color: #3D4F5E; padding: 5px 2px; border-bottom: 1px solid #EEE; display: flex; gap: 8px; flex-wrap: wrap; }
-    .audit-time { color: #8A959E; min-width: 105px; }
+    .audit-row { font-size: 12px; color: #374151; padding: 5px 2px; border-bottom: 1px solid #D1D5DB; display: flex; gap: 8px; flex-wrap: wrap; }
+    .audit-time { color: #6B7280; min-width: 105px; }
 
-    .dnd-item { display: flex; align-items: center; gap: 8px; border: 1px solid #DCE0E3; border-radius: 6px; padding: 6px 10px; background: #fff; }
+    .dnd-item { display: flex; align-items: center; gap: 8px; border: 1px solid #D1D5DB; border-radius: 6px; padding: 6px 10px; background: #FFFFFF; }
     .dnd-item.dragging { opacity: 0.4; }
-    .dnd-item.dnd-over { border-color: #E8590C; background: #FFF7F2; }
+    .dnd-item.dnd-over { border-color: #D4AF37; background: rgba(212,175,55,.12); }
     .kb-card[draggable="true"] { cursor: grab; }
     .kb-card.dragging { opacity: 0.4; }
-    .kb-col.dnd-over { outline: 2px dashed #E8590C; outline-offset: -2px; background: #FFF7F2; border-radius: 0 0 10px 10px; }
-    .drag-handle { cursor: grab; color: #9AA4AC; font-size: 15px; line-height: 1; user-select: none; padding: 0 2px; }
+    .kb-col.dnd-over { outline: 2px dashed #D4AF37; outline-offset: -2px; background: rgba(212,175,55,.12); border-radius: 0 0 10px 10px; }
+    .drag-handle { cursor: grab; color: #6B7280; font-size: 15px; line-height: 1; user-select: none; padding: 0 2px; }
     .dnd-item:active .drag-handle { cursor: grabbing; }
     .btn-move { padding: 1px 7px; font-size: 11px; line-height: 1.5; }
     .btn-move[disabled] { opacity: 0.3; cursor: default; }
@@ -99,10 +101,441 @@
     .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 70vh; text-align: center; }
     .login-box { max-width: 420px; width: 100%; }
 
+    /* D-BORD visual system: 承認済みデザイン案の共通ルールを全画面へ適用する */
+    :root {
+      --db-primary: #0D1B2A;
+      --db-secondary: #1B263B;
+      --db-accent: #D4AF37;
+      --db-action: #2563EB;
+      --db-success: #16A34A;
+      --db-warning: #F59E0B;
+      --db-danger: #EF4444;
+      --db-gray-900: #111827;
+      --db-gray-700: #374151;
+      --db-gray-500: #6B7280;
+      --db-gray-300: #D1D5DB;
+      --db-gray-100: #F3F4F6;
+      --db-white: #FFFFFF;
+      --db-accent-soft: rgba(212,175,55,.12);
+      --db-action-soft: rgba(37,99,235,.08);
+      --db-success-soft: rgba(22,163,74,.08);
+      --db-warning-soft: rgba(245,158,11,.09);
+      --db-danger-soft: rgba(239,68,68,.08);
+      --db-neutral-soft: rgba(107,114,128,.08);
+      --db-shadow-sm: 0 1px 2px rgba(13,27,42,.06);
+      --db-shadow-md: 0 8px 24px rgba(13,27,42,.08);
+      --db-shadow-lg: 0 24px 60px rgba(13,27,42,.16);
+    }
+    html { background: var(--db-gray-100); }
+    body { background: var(--db-gray-100); color: var(--db-gray-900); line-height: 1.55; }
+    button, input, textarea, select { font: inherit; }
+
+    header { min-height: 62px; background: linear-gradient(110deg, var(--db-primary), var(--db-secondary)); padding: 9px 22px; gap: 18px; border-bottom: 1px solid rgba(212,175,55,.25); box-shadow: 0 4px 18px rgba(13,27,42,.18); }
+    header .logo { align-items: center; gap: 9px; min-width: max-content; }
+    .header-brand-logo { display: block; width: auto; height: 44px; max-width: 130px; object-fit: contain; border-radius: 7px; background: #FFFFFF; box-shadow: 0 3px 10px rgba(13,27,42,.18); }
+    header .week-nav { gap: 4px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 4px 7px; }
+    header .week-nav button { padding: 2px 6px; border-radius: 5px; transition: background .16s ease; }
+    header .week-nav button:hover { background: rgba(255,255,255,.12); }
+    header .week-nav .label { font-size: 12.5px; letter-spacing: .02em; }
+    header .status { gap: 8px; }
+    header .status-msg { color: #D1D5DB; }
+    header .hbtn { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.13); border-radius: 7px; padding: 6px 11px; font-size: 11.5px; transition: background .16s ease, border-color .16s ease; }
+    header .hbtn:hover { background: rgba(255,255,255,.14); border-color: rgba(212,175,55,.45); }
+
+    nav { top: 62px; background: var(--db-primary); border-bottom: 1px solid rgba(255,255,255,.08); gap: 3px; padding: 5px 18px 7px; box-shadow: 0 5px 18px rgba(13,27,42,.12); scrollbar-width: thin; }
+    nav button { border: 0; padding: 8px 12px; font-size: 12.5px; font-weight: 600; color: #D1D5DB; border-radius: 7px; transition: color .16s ease, background .16s ease; }
+    nav button.active { border: 0; background: rgba(212,175,55,.14); color: #D4AF37; font-weight: 800; }
+    nav button.active::before { content: ''; position: absolute; left: 10px; right: 10px; bottom: 2px; height: 2px; background: var(--db-accent); border-radius: 2px; }
+    nav button:hover { background: rgba(255,255,255,.08); color: #FFFFFF; }
+    nav .badge { top: 1px; right: 0; background: var(--db-danger); box-shadow: 0 0 0 2px var(--db-primary); }
+
+    main { max-width: 1500px; padding: 20px 28px 72px; }
+    .section { animation: dbSectionIn .2s ease both; }
+    @keyframes dbSectionIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+    .section-header { gap: 10px; margin: 22px 0 13px; }
+    .section-num { background: var(--db-primary); color: #D4AF37; border-radius: 5px; padding: 4px 8px; box-shadow: inset 0 0 0 1px rgba(212,175,55,.26); }
+    .section-title { font-size: 18px; color: var(--db-primary); letter-spacing: .01em; }
+
+    .card { border-color: #D1D5DB; border-radius: 10px; padding: 16px; margin-bottom: 14px; box-shadow: var(--db-shadow-sm); transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+    .card:hover { border-color: #D1D5DB; box-shadow: 0 5px 18px rgba(13,27,42,.07); }
+    .chip { border-radius: 999px; padding: 2px 8px; font-size: 10.5px; line-height: 1.45; }
+
+    table.grid { border-collapse: separate; border-spacing: 0; border-color: #D1D5DB; border-radius: 10px; overflow: hidden; box-shadow: var(--db-shadow-sm); }
+    table.grid th { background: var(--db-secondary); padding: 10px 11px; border: 0; font-size: 11.5px; }
+    table.grid td { border-top-color: #D1D5DB; border-left-color: #F3F4F6; padding: 8px 10px; font-size: 12.5px; background-clip: padding-box; }
+    table.grid tr:hover td { background-color: #F3F4F6; }
+
+    input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="date"], textarea, select { border-color: var(--db-gray-300); border-radius: 7px; padding: 8px 10px; font-size: 12.5px; color: var(--db-gray-900); transition: border-color .16s ease, box-shadow .16s ease; }
+    input:focus, textarea:focus, select:focus { border-color: var(--db-action); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+
+    .btn { border-radius: 7px; padding: 8px 14px; font-size: 12.5px; transition: transform .12s ease, box-shadow .16s ease, background .16s ease, border-color .16s ease; }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .btn-primary { background: linear-gradient(135deg, #D4AF37, var(--db-accent)); color: var(--db-primary); box-shadow: 0 3px 9px rgba(212,175,55,.22); }
+    .btn-primary:hover { background: linear-gradient(135deg, #D4AF37, #D4AF37); box-shadow: 0 5px 14px rgba(212,175,55,.28); }
+    .btn-secondary { border-color: #D1D5DB; color: var(--db-primary); }
+    .btn-secondary:hover { background: #F3F4F6; border-color: #6B7280; }
+    .btn-small { padding: 4px 9px; font-size: 11.5px; }
+    .btn-danger { color: #EF4444; }
+
+    .modal { background: rgba(13,27,42,.62); backdrop-filter: blur(3px); }
+    .modal-content { border: 1px solid rgba(255,255,255,.7); border-radius: 14px; padding: 20px; box-shadow: var(--db-shadow-lg); }
+    .modal-title { font-size: 17px; color: var(--db-primary); padding-bottom: 10px; border-bottom: 1px solid #D1D5DB; }
+    .todo-item { padding: 9px 3px; border-bottom-color: #F3F4F6; }
+    input:disabled, textarea:disabled, select:disabled { background: var(--db-gray-100); color: var(--db-gray-500); }
+
+    .alert { padding: 11px 13px; border-radius: 8px; margin-bottom: 13px; box-shadow: var(--db-shadow-sm); }
+    .alert-info { background: rgba(37,99,235,.08); border-color: rgba(37,99,235,.28); color: #2563EB; }
+    .alert-warning { background: rgba(245,158,11,.09); border-color: rgba(245,158,11,.32); color: #F59E0B; }
+    .alert-error { background: rgba(239,68,68,.08); border-color: rgba(239,68,68,.30); color: #EF4444; }
+    .feed-item { border-left-color: var(--db-accent); }
+    .read-chip { background: rgba(22,163,74,.08); border-color: rgba(22,163,74,.28); color: #16A34A; border-radius: 999px; }
+    .unread-dot { background: var(--db-danger); box-shadow: 0 0 0 3px rgba(239,68,68,.08); }
+    .comment-item, .audit-row { border-color: #F3F4F6; }
+    .feed-meta, .comment-meta, .audit-time { color: var(--db-gray-500); }
+
+    .dnd-item { border-color: #D1D5DB; border-radius: 7px; padding: 7px 10px; box-shadow: var(--db-shadow-sm); }
+    .dnd-item.dnd-over { border-color: var(--db-action); background: rgba(37,99,235,.08); }
+    .kb-col { background: #F3F4F6 !important; border-color: #D1D5DB !important; border-radius: 10px !important; box-shadow: var(--db-shadow-sm); }
+    .kb-col > div:first-child { background: var(--db-secondary) !important; }
+    .kb-card { background: #FFFFFF; border-color: #D1D5DB !important; box-shadow: var(--db-shadow-sm); transition: transform .14s ease, box-shadow .14s ease; }
+    .kb-card:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(13,27,42,.09); }
+    .kb-col.dnd-over { outline-color: var(--db-action); background: rgba(37,99,235,.08) !important; }
+
+    .login-wrap { min-height: calc(100vh - 40px); padding: 28px 16px; position: relative; isolation: isolate; }
+    .login-wrap::before { content: ''; position: absolute; inset: 0; z-index: -2; background: radial-gradient(circle at 20% 20%, rgba(212,175,55,.16), transparent 30%), radial-gradient(circle at 85% 80%, rgba(37,99,235,.1), transparent 32%), linear-gradient(145deg, #F3F4F6, #F3F4F6); }
+    .login-wrap::after { content: ''; position: absolute; inset: 0; z-index: -1; opacity: .28; background-image: linear-gradient(rgba(13,27,42,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(13,27,42,.045) 1px, transparent 1px); background-size: 32px 32px; mask-image: linear-gradient(to bottom, #111827, transparent 82%); }
+    .login-box { max-width: 440px; background: rgba(255,255,255,.94); border: 1px solid rgba(212,175,55,.28); border-radius: 16px; padding: 32px 34px 28px; box-shadow: var(--db-shadow-lg); backdrop-filter: blur(10px); }
+    .login-brand { display: grid; justify-items: center; margin-bottom: 24px; }
+    .login-brand-logo { display: block; width: min(100%, 210px); height: auto; object-fit: contain; }
+    .login-tagline { color: var(--db-gray-700); font-size: 13.5px; font-weight: 700; letter-spacing: .16em; margin-top: 17px; }
+    .login-subtitle { color: var(--db-gray-500); font-size: 11.5px; margin: -8px 0 20px; }
+    #btnLogin { font-size: 13.5px; letter-spacing: .08em; }
+
+    /* 日常操作は青、重要な入口や強調操作はゴールドに役割を分ける */
+    #btnAddCase, #btnPostAnn, #btnTeamsImport, #btnPrepareMeeting,
+    #btnCalendarImport, #btnGoogleCalendarImport, #btnCaseSave,
+    #btnTodoSave, #btnCommentPost, #btnLostConfirm {
+      background: linear-gradient(135deg, #2563EB, var(--db-action));
+      color: #FFFFFF;
+      box-shadow: 0 3px 9px rgba(37,99,235,.2);
+    }
+    #btnAddCase:hover, #btnPostAnn:hover, #btnTeamsImport:hover, #btnPrepareMeeting:hover,
+    #btnCalendarImport:hover, #btnGoogleCalendarImport:hover, #btnCaseSave:hover,
+    #btnTodoSave:hover, #btnCommentPost:hover, #btnLostConfirm:hover {
+      background: linear-gradient(135deg, #2563EB, #2563EB);
+      box-shadow: 0 5px 14px rgba(37,99,235,.26);
+    }
+    #casesList, #todoList, #annList, #nippoList, #meetingList { display: grid; gap: 2px; }
+    .case-card { position: relative; overflow: hidden; }
+    .case-card::after { content: ''; position: absolute; inset: 0 0 auto; height: 2px; background: linear-gradient(90deg, rgba(212,175,55,.8), transparent 58%); opacity: .7; }
+    .dashboard-kpi-grid { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px !important; }
+    .kpi-card { position: relative; overflow: hidden; min-height: 98px; border-color: #D1D5DB !important; box-shadow: var(--db-shadow-sm); }
+    .kpi-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 3px; background: var(--db-accent); }
+    .kpi-card.kpi-action::before { background: var(--db-action); }
+    .kpi-card.kpi-success::before { background: var(--db-success); }
+    .kpi-card.kpi-warning::before { background: var(--db-warning); }
+    .kpi-card.kpi-danger::before { background: var(--db-danger); }
+    #dashboardPanel .card > h3 { color: var(--db-primary); font-size: 14px; letter-spacing: .01em; }
+    .dash-bar-row { border-radius: 6px; padding: 4px 5px; margin-left: -5px; margin-right: -5px; }
+    .dash-bar-row:hover { background: #F3F4F6; }
+    #kanbanBoard { gap: 12px !important; padding: 3px 3px 14px !important; }
+    #printArea { box-shadow: var(--db-shadow-md); }
+
+    /* D-BORD application shell: 提案デザインの上部ヘッダー＋左ナビを全タブへ展開 */
+    body.app-mode .container {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      grid-template-rows: 64px minmax(calc(100vh - 64px), auto);
+      min-height: 100vh;
+    }
+    body.app-mode header {
+      grid-column: 1 / -1;
+      grid-row: 1;
+      min-height: 64px;
+      padding: 9px 20px;
+      flex-wrap: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 60;
+    }
+    body.app-mode nav {
+      grid-column: 1;
+      grid-row: 2;
+      position: sticky;
+      top: 64px;
+      align-self: start;
+      width: 220px;
+      height: calc(100vh - 64px);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      overflow: hidden auto;
+      padding: 18px 12px 14px;
+      background: var(--db-primary);
+      border: 0;
+      border-right: 1px solid rgba(255,255,255,.08);
+      box-shadow: 5px 0 20px rgba(13,27,42,.10);
+      z-index: 35;
+    }
+    body.app-mode nav::before {
+      content: 'D-BORD MENU';
+      padding: 0 11px 9px;
+      color: #6B7280;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: .16em;
+    }
+    body.app-mode nav::after {
+      content: 'D-WOLF  INFORMATION HUB';
+      margin-top: auto;
+      padding: 18px 11px 0;
+      border-top: 1px solid rgba(255,255,255,.08);
+      color: #6B7280;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: .10em;
+    }
+    body.app-mode nav button {
+      width: 100%;
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 11px;
+      color: #D1D5DB;
+      text-align: left;
+      border-radius: 8px;
+    }
+    body.app-mode nav button::before {
+      content: '•';
+      position: static;
+      width: 20px;
+      height: 20px;
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      color: #D1D5DB;
+      font-size: 14px;
+      line-height: 1;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 5px;
+    }
+    body.app-mode nav button[data-tab="board"]::before { content: '▦'; }
+    body.app-mode nav button[data-tab="todos"]::before { content: '✓'; }
+    body.app-mode nav button[data-tab="cases"]::before { content: '□'; }
+    body.app-mode nav button[data-tab="customers"]::before { content: '◇'; }
+    body.app-mode nav button[data-tab="kanban"]::before { content: '▤'; }
+    body.app-mode nav button[data-tab="dashboard"]::before { content: '⌂'; }
+    body.app-mode nav button[data-tab="feed"]::before { content: '●'; font-size: 9px; }
+    body.app-mode nav button[data-tab="nippo"]::before { content: '≡'; }
+    body.app-mode nav button[data-tab="meeting"]::before { content: '♙'; }
+    body.app-mode nav button[data-tab="report"]::before { content: '▥'; }
+    body.app-mode nav button[data-tab="master"]::before { content: '▦'; }
+    body.app-mode nav button[data-tab="settings"]::before { content: '⚙'; }
+    body.app-mode nav button.active {
+      background: rgba(212,175,55,.13);
+      color: #FFFFFF;
+      box-shadow: inset 0 0 0 1px rgba(212,175,55,.16);
+    }
+    body.app-mode nav button.active::before { color: #D4AF37; border-color: rgba(212,175,55,.28); background: rgba(212,175,55,.10); }
+    body.app-mode nav button.active::after {
+      content: '';
+      position: absolute;
+      inset: 8px auto 8px 0;
+      width: 3px;
+      background: var(--db-accent);
+      border-radius: 0 3px 3px 0;
+    }
+    body.app-mode nav .badge {
+      top: 50%;
+      right: 9px;
+      transform: translateY(-50%);
+    }
+    body.app-mode main {
+      grid-column: 2;
+      grid-row: 2;
+      width: 100%;
+      max-width: none;
+      min-width: 0;
+      margin: 0;
+      padding: 24px 28px 72px;
+    }
+
+    /* 全タブ共通のページ見出し・業務カード */
+    body.app-mode .section > .section-header:first-child {
+      min-height: 54px;
+      margin: 0 0 18px;
+      padding: 0 2px 14px;
+      border-bottom: 1px solid #D1D5DB;
+    }
+    body.app-mode .section > .section-header:first-child .section-title {
+      font-size: clamp(19px, 2vw, 24px);
+      letter-spacing: -.02em;
+    }
+    body.app-mode .section-header:not(:first-child) {
+      margin-top: 28px;
+      padding-top: 4px;
+    }
+    body.app-mode .section-num {
+      min-width: 34px;
+      min-height: 30px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 7px;
+      font-size: 10px;
+    }
+    body.app-mode .card {
+      background: #FFFFFF;
+      border: 1px solid #D1D5DB;
+      border-radius: 12px;
+      box-shadow: 0 3px 12px rgba(13,27,42,.055);
+    }
+    body.app-mode .card:hover { transform: none; box-shadow: 0 5px 18px rgba(13,27,42,.075); }
+    body.app-mode table.grid { border-radius: 12px; box-shadow: 0 3px 12px rgba(13,27,42,.055); }
+    body.app-mode table.grid th { padding: 11px 12px; }
+    body.app-mode table.grid td { padding: 9px 11px; }
+    body.app-mode .alert { border-left-width: 4px; }
+    .section-description { display: block; margin-top: 2px; color: #6B7280; font-size: 11.5px; font-weight: 500; letter-spacing: 0; }
+
+    /* Dashboard overview */
+    .dashboard-overview-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 18px;
+      margin: 2px 0 14px;
+    }
+    .dashboard-kicker { color: #D4AF37; font-size: 9px; font-weight: 900; letter-spacing: .18em; }
+    .dashboard-overview-head h3 { margin-top: 3px; color: #0D1B2A; font-size: 17px; font-weight: 900; }
+    .dashboard-overview-head p { color: #6B7280; font-size: 11px; }
+    .dashboard-primary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .dashboard-secondary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .dashboard-primary-grid .kpi-card { min-height: 122px; padding: 20px 18px !important; }
+    .dashboard-secondary-grid .kpi-card { min-height: 88px; padding: 16px 17px !important; }
+    .kpi-card {
+      isolation: isolate;
+      border: 1px solid #D1D5DB !important;
+      border-radius: 12px !important;
+      background: #FFFFFF !important;
+      box-shadow: 0 3px 12px rgba(13,27,42,.06) !important;
+    }
+    .kpi-card::before { inset: 0 auto 0 0; width: 4px; height: auto; }
+    .kpi-card::after {
+      content: '';
+      position: absolute;
+      z-index: -1;
+      width: 76px;
+      height: 76px;
+      right: -28px;
+      top: -30px;
+      border-radius: 50%;
+      background: rgba(212,175,55,.08);
+    }
+    .kpi-card.kpi-action::after { background: rgba(37,99,235,.08); }
+    .kpi-card.kpi-success::after { background: rgba(22,163,74,.08); }
+    .kpi-card.kpi-warning::after { background: rgba(245,158,11,.09); }
+    .kpi-card.kpi-danger::after { background: rgba(239,68,68,.08); }
+    .dashboard-primary-grid .kpi-card > div:nth-child(2) { margin-top: 9px !important; font-size: clamp(23px, 2.2vw, 31px) !important; }
+    .dashboard-secondary-grid .kpi-card > div:nth-child(2) { font-size: 21px !important; }
+    .dashboard-ops-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr);
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .dashboard-ops-card { margin: 0 !important; padding: 0 !important; overflow: hidden; }
+    .dashboard-ops-card > h3 {
+      margin: 0 !important;
+      padding: 14px 17px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #F3F4F6;
+      border-bottom: 1px solid #D1D5DB;
+      font-size: 13px !important;
+    }
+    .dashboard-ops-card > h3 span { color: #6B7280; font-size: 9px; font-weight: 700; letter-spacing: .08em; }
+    .dashboard-list-row {
+      min-height: 50px;
+      display: grid;
+      grid-template-columns: 4px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 11px;
+      padding: 9px 16px;
+      border-bottom: 1px solid #F3F4F6;
+    }
+    .dashboard-list-row:last-child { border-bottom: 0; }
+    .dashboard-list-accent { width: 4px; height: 28px; border-radius: 4px; background: #D4AF37; }
+    .dashboard-list-copy { min-width: 0; }
+    .dashboard-list-title { overflow: hidden; color: #111827; font-size: 12px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .dashboard-list-meta { margin-top: 2px; color: #6B7280; font-size: 10px; }
+    .dashboard-list-value { color: #374151; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+    .dashboard-empty { padding: 24px 17px; color: #6B7280; font-size: 11.5px; text-align: center; }
+    .dashboard-panel-card { padding: 20px !important; margin-bottom: 18px !important; }
+    .dashboard-panel-card > h3 { margin-bottom: 14px !important; font-size: 15px !important; }
+    .dashboard-analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .dashboard-analysis-grid > .card { min-width: 0; margin: 0 !important; }
+    .dashboard-analysis-grid > .card:last-child { grid-column: 1 / -1; margin-bottom: 18px !important; }
+
+    @media (max-width: 980px) {
+      body.app-mode .container { display: flex; flex-direction: column; }
+      body.app-mode header { min-height: 64px; padding: 8px 12px; gap: 10px; flex-wrap: wrap; }
+      body.app-mode header .week-nav { order: 3; width: 100%; justify-content: center; }
+      body.app-mode nav {
+        position: sticky;
+        top: 105px;
+        width: 100%;
+        height: auto;
+        flex-direction: row;
+        align-items: center;
+        gap: 3px;
+        overflow: auto hidden;
+        padding: 6px 9px 8px;
+        border-right: 0;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+      }
+      body.app-mode nav::before, body.app-mode nav::after, body.app-mode nav button::before { display: none; }
+      body.app-mode nav button { width: auto; min-height: 34px; padding: 7px 10px; white-space: nowrap; }
+      body.app-mode nav button.active::after { inset: auto 9px 1px; width: auto; height: 2px; border-radius: 2px; }
+      body.app-mode nav .badge { top: 2px; right: 0; transform: none; }
+      body.app-mode main { padding: 18px 16px 60px; }
+      .dashboard-primary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .dashboard-ops-grid, .dashboard-analysis-grid { grid-template-columns: 1fr; }
+      .dashboard-analysis-grid > .card:last-child { grid-column: auto; }
+    }
+
+    @media (max-width: 640px) {
+      header { padding: 8px 12px; gap: 10px; }
+      header .logo-sub, header .status-msg { display: none; }
+      body.app-mode main { padding: 14px 11px 56px; }
+      .section-header { margin-top: 17px; }
+      .section-title { font-size: 16px; }
+      .modal-cols { grid-template-columns: 1fr; }
+      .login-box { padding: 28px 22px 24px; }
+      .dashboard-primary-grid, .dashboard-secondary-grid { grid-template-columns: 1fr 1fr; gap: 9px; }
+      .dashboard-primary-grid .kpi-card, .dashboard-secondary-grid .kpi-card { min-height: 92px; padding: 14px 13px !important; }
+      .dashboard-primary-grid .kpi-card > div:nth-child(2) { font-size: 20px !important; }
+      .dashboard-secondary-grid .kpi-card:last-child { grid-column: 1 / -1; }
+      .dashboard-overview-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+      .dashboard-ops-grid { grid-template-columns: 1fr; }
+      .kpi-card { min-width: 0 !important; }
+    }
+
     @media print {
       body * { visibility: hidden !important; }
       #printArea, #printArea * { visibility: visible !important; }
-      #printArea { position: absolute; left: 0; top: 0; width: 100%; background: #fff; }
+      #printArea { position: absolute; left: 0; top: 0; width: 100%; background: #FFFFFF; }
       @page { size: A4 portrait; margin: 12mm; }
     }
   </style>
@@ -111,12 +544,9 @@
 <div class="container">
   <header id="appHeader" style="display:none;">
     <div class="logo">
-      <img src="logo.png" alt="D-WOLF" style="height:36px; background:#fff; border-radius:6px; padding:2px 8px; display:block;"
-           onerror="this.style.display='none'; document.getElementById('logoTextFallback').style.display='flex';">
-      <span id="logoTextFallback" style="display:none; align-items:baseline; gap:8px;"><span class="logo-main">D-WOLF</span></span>
-      <span class="logo-sub" style="letter-spacing:1px;">D-BORD</span>
+      <img class="header-brand-logo" src="d-bord-logo-header.png" alt="D-BORD — D-WOLF INFORMATION SHARING SYSTEM">
     </div>
-    <span id="viewerBadge" style="display:none; background:#B34608; color:#fff; font-size:11px; font-weight:800; padding:3px 9px; border-radius:12px; white-space:nowrap;">閲覧専用</span>
+    <span id="viewerBadge" style="display:none; background:#F59E0B; color:#FFFFFF; font-size:11px; font-weight:800; padding:3px 9px; border-radius:12px; white-space:nowrap;">閲覧専用</span>
     <div class="week-nav">
       <button id="btnPrevW">‹</button>
       <span class="label" id="weekLabel"></span>
@@ -154,18 +584,16 @@
     <!-- ログイン -->
     <div id="loginScreen" class="login-wrap">
       <div class="login-box">
-        <img src="logo.png" alt="D-WOLF" style="max-width:220px; margin:0 auto 8px; display:block;"
-             onerror="this.style.display='none'; document.getElementById('loginLogoFallback').style.display='block';">
-        <div id="loginLogoFallback" style="display:none;">
-          <div style="color:#E8590C; font-size:12px; letter-spacing:4px; font-weight:800; margin-bottom:6px;">SHIMIZUGUMI DRONE UNIT</div>
-          <h1 style="font-size:34px; font-weight:900; margin:0 0 4px; letter-spacing:2px;">D-WOLF</h1>
+        <div class="login-brand">
+          <img class="login-brand-logo" src="d-bord-logo-login.png" alt="D-BORD — D-WOLF INFORMATION SHARING SYSTEM">
+          <div class="login-tagline">つながる、見える、加速する。</div>
         </div>
-        <div style="color:#3D4F5E; font-size:13px; margin-bottom:24px;">週次オペレーションボード｜社内アカウントでログイン</div>
+        <div class="login-subtitle">社内アカウントでログイン</div>
         <input type="email" id="loginEmail" class="w100" placeholder="メールアドレス(例: iida@d-wolf.jp)" autocomplete="username" style="padding:11px;">
         <input type="password" id="loginPw" class="w100" placeholder="パスワード" autocomplete="current-password" style="margin-top:8px; padding:11px;">
         <button class="btn btn-primary w100" id="btnLogin" style="margin-top:10px; padding:12px;">ログイン</button>
-        <div id="loginMsg" style="color:#B54747; font-size:12.5px; margin-top:10px;"></div>
-        <div style="color:#8A959E; font-size:11.5px; margin-top:14px; line-height:1.6;">パスワードが分からない場合は多々良さんまたは宮﨑までご連絡ください。</div>
+        <div id="loginMsg" style="color:#EF4444; font-size:12.5px; margin-top:10px;"></div>
+        <div style="color:#6B7280; font-size:11.5px; margin-top:14px; line-height:1.6;">パスワードが分からない場合は多々良さんまたは宮﨑までご連絡ください。</div>
       </div>
     </div>
 
@@ -196,7 +624,7 @@
         <label style="margin-left:auto; font-size:12px; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="boardAnnShowRead"> 確認済みも表示</label>
       </div>
       <div class="card">
-        <div style="font-size:11.5px; color:#6B7A87; margin-bottom:8px;">チェックを入れるとこの欄から非表示になります(連絡事項タブではいつでも読み返せます)。連絡事項の投稿は「連絡事項」タブから行います。</div>
+        <div style="font-size:11.5px; color:#6B7280; margin-bottom:8px;">チェックを入れるとこの欄から非表示になります(連絡事項タブではいつでも読み返せます)。連絡事項の投稿は「連絡事項」タブから行います。</div>
         <div id="boardAnnList"></div>
       </div>
     </div>
@@ -213,10 +641,10 @@
       <div class="card">
         <div style="font-size:12px; font-weight:700; margin-bottom:8px;">TODOを追加</div>
         <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1.5fr auto; gap:8px; align-items:end;">
-          <label style="font-size:11px; color:#6B7A87; font-weight:700;">内容<input type="text" id="todoInput" class="w100" placeholder="やることを入力" style="margin-top:3px;"></label>
-          <label style="font-size:11px; color:#6B7A87; font-weight:700;">担当<select id="todoAssignee" class="w100" style="margin-top:3px;"></select></label>
-          <label style="font-size:11px; color:#6B7A87; font-weight:700;">期限<input type="date" id="todoDue" class="w100" style="margin-top:3px;"></label>
-          <label style="font-size:11px; color:#6B7A87; font-weight:700;">案件(任意)<select id="todoCase" class="w100" style="margin-top:3px;"></select></label>
+          <label style="font-size:11px; color:#6B7280; font-weight:700;">内容<input type="text" id="todoInput" class="w100" placeholder="やることを入力" style="margin-top:3px;"></label>
+          <label style="font-size:11px; color:#6B7280; font-weight:700;">担当<select id="todoAssignee" class="w100" style="margin-top:3px;"></select></label>
+          <label style="font-size:11px; color:#6B7280; font-weight:700;">期限<input type="date" id="todoDue" class="w100" style="margin-top:3px;"></label>
+          <label style="font-size:11px; color:#6B7280; font-weight:700;">案件(任意)<select id="todoCase" class="w100" style="margin-top:3px;"></select></label>
           <button class="btn btn-primary" id="btnAddTodo">追加</button>
         </div>
       </div>
@@ -272,7 +700,10 @@
 
     <!-- ダッシュボード -->
     <div class="section" data-section="dashboard">
-      <div class="section-header"><span class="section-num">03</span><h2 class="section-title">ダッシュボード(自動集計)</h2></div>
+      <div class="section-header">
+        <span class="section-num">06</span>
+        <div><h2 class="section-title">ダッシュボード</h2><span class="section-description">案件・受注・入金・進捗をひとつの画面で確認</span></div>
+      </div>
       <div id="dashboardPanel"></div>
     </div>
 
@@ -334,7 +765,7 @@
         <span class="section-num">09</span><h2 class="section-title">社長報告(A4・1枚)</h2>
         <button class="btn btn-primary" data-viewer-safe="1" style="margin-left:auto;" onclick="window.print()">印刷 / PDF保存</button>
       </div>
-      <div style="font-size:12.5px; color:#3D4F5E; margin-bottom:12px;">下のプレビューがそのまま印刷されます。修正は各タブで行ってください。</div>
+      <div style="font-size:12.5px; color:#374151; margin-bottom:12px;">下のプレビューがそのまま印刷されます。修正は各タブで行ってください。</div>
       <div id="printArea"></div>
     </div>
 
@@ -389,12 +820,12 @@
 <div class="modal" id="calPickModal">
   <div class="modal-content" style="max-width:480px;">
     <h3 class="modal-title" id="calPickTitle"></h3>
-    <div style="font-size:11.5px; color:#6B7A87; margin-bottom:8px;">取り込みたいカレンダーにチェックを入れてください。選択は自分専用に保存され、次回以降はこの画面は出ません。</div>
+    <div style="font-size:11.5px; color:#6B7280; margin-bottom:8px;">取り込みたいカレンダーにチェックを入れてください。選択は自分専用に保存され、次回以降はこの画面は出ません。</div>
     <div style="display:flex; gap:8px; margin-bottom:8px;">
       <button class="btn btn-secondary btn-small" id="btnCalPickAll">すべて選択</button>
       <button class="btn btn-secondary btn-small" id="btnCalPickNone">すべて解除</button>
     </div>
-    <div id="calPickList" style="max-height:45vh; overflow-y:auto; border:1px solid #EEE; border-radius:6px; padding:6px;"></div>
+    <div id="calPickList" style="max-height:45vh; overflow-y:auto; border:1px solid #D1D5DB; border-radius:6px; padding:6px;"></div>
     <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end;">
       <button class="btn btn-secondary" id="btnCalPickCancel">キャンセル</button>
       <button class="btn btn-primary" id="btnCalPickSave">保存して取り込む</button>
@@ -408,10 +839,10 @@
     <label style="font-size:12px; font-weight:700;">失注理由<select id="lostReasonSel" class="w100" style="margin-top:4px;"></select></label>
     <label style="font-size:12px; font-weight:700; display:block; margin-top:10px;">補足(任意)<input type="text" id="lostReasonNote" class="w100" placeholder="例:予算が合わず○○社に" style="margin-top:4px;"></label>
     <div id="lostAmountWarn"></div>
-    <div style="font-size:11.5px; color:#6B7A87; margin-top:8px;">失注にすると案件はアーカイブされます(「完了済も表示」で確認可能。「戻す」で失注を取り消せます)。理由は成約率・失注分析に使われます。</div>
+    <div style="font-size:11.5px; color:#6B7280; margin-top:8px;">失注にすると案件はアーカイブされます(「完了済も表示」で確認可能。「戻す」で失注を取り消せます)。理由は成約率・失注分析に使われます。</div>
     <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end;">
       <button class="btn btn-secondary" id="btnLostCancel">キャンセル</button>
-      <button class="btn btn-primary" id="btnLostConfirm" style="background:#B54747;">失注として終了</button>
+      <button class="btn btn-primary" id="btnLostConfirm" style="background:#EF4444;">失注として終了</button>
     </div>
   </div>
 </div>
@@ -434,11 +865,11 @@
   <div class="modal-content">
     <h3 class="modal-title" id="fileModalTitle"></h3>
     <div id="fileList" style="max-height:40vh; overflow-y:auto; margin-bottom:10px;"></div>
-    <div style="border:2px dashed #DCE0E3; border-radius:8px; padding:14px; text-align:center;">
+    <div style="border:2px dashed #D1D5DB; border-radius:8px; padding:14px; text-align:center;">
       <input type="file" id="fileUploadInput" multiple style="display:none;">
       <button class="btn btn-primary" id="btnFileSelect">ファイルを選択してアップロード</button>
-      <div style="font-size:11.5px; color:#6B7A87; margin-top:6px;">見積書・報告書・現場写真など(複数選択可・1ファイル最大50MB)</div>
-      <div id="fileUploadState" style="font-size:12px; color:#E8590C; margin-top:4px;"></div>
+      <div style="font-size:11.5px; color:#6B7280; margin-top:6px;">見積書・報告書・現場写真など(複数選択可・1ファイル最大50MB)</div>
+      <div id="fileUploadState" style="font-size:12px; color:#D4AF37; margin-top:4px;"></div>
     </div>
     <div style="display:flex; margin-top:12px; justify-content:flex-end;">
       <button class="btn btn-secondary" id="btnFileClose">閉じる</button>
@@ -476,8 +907,8 @@ const DEFAULT_MASTER = {
   mandayLimit: 5,
 };
 const DAYS = ["月", "火", "水", "木", "金"];
-const CAT_PALETTE = ["#2B6CB0","#6B46C1","#2F855A","#B7791F","#C53030","#0987A0","#B83280","#4A5568","#975A16","#276749"];
-const BUSY_PALETTE = ["#2F855A","#D69E2E","#C53030","#6B46C1","#4A5568"];
+const CAT_PALETTE = ["#D4AF37","#2563EB","#16A34A","#1B263B","#374151"];
+const BUSY_PALETTE = ["#16A34A","#D4AF37","#F59E0B","#EF4444","#374151"];
 
 let sb = null;
 let me = null;
@@ -653,7 +1084,7 @@ async function logAction(action, detail){
 
 function setStatus(msg, ok=true){
   $("saveStatus").textContent=msg;
-  $("saveStatus").style.color = ok? "#9FB0BC" : "#FF9D9D";
+  $("saveStatus").style.color = ok? "#D1D5DB" : "#EF4444";
   if(msg) setTimeout(()=>{ if($("saveStatus").textContent===msg) $("saveStatus").textContent=""; }, 2500);
 }
 function queueSave(kind){
@@ -798,6 +1229,7 @@ function startViewerLockObserver(){
   viewerLockObserver.observe(document.body, {childList:true, subtree:true});
 }
 async function enterApp(){
+  document.body.classList.add("app-mode");
   $("loginScreen").style.display="none";
   $("appHeader").style.display="flex";
   $("appNav").style.display="flex";
@@ -846,7 +1278,7 @@ function renderBoard(){
   const dates=weekDates(monday);
   let html=`<tr><th>氏名</th>${DAYS.map((d,i)=>`<th>${d} ${fmtShort(dates[i])}</th>`).join("")}</tr>`;
   boardRows().forEach(m=>{
-    html+=`<tr><td style="font-weight:800; background:${m===me?"#FFF0E6":"#FAFAF9"}; white-space:nowrap;">${esc(m)}</td>`;
+    html+=`<tr><td style="font-weight:800; background:${m===me?"rgba(212,175,55,.12)":"#F3F4F6"}; white-space:nowrap;">${esc(m)}</td>`;
     DAYS.forEach((_,i)=>{
       const val=(week.schedule[m]||[])[i]||"";
       html+=`<td><textarea rows="3" data-sch="${esc(m)}|${i}" style="border:none; background:transparent; padding:4px; font-size:12px;" placeholder="${m===me?"予定を入力":""}">${esc(val)}</textarea></td>`;
@@ -886,14 +1318,14 @@ function renderBoardAnnouncements(){
   const hidden=new Set(annHiddenIds());
   const list=announcements.filter(a=>showAll? true : !hidden.has(String(a.id)));
   $("boardAnnList").innerHTML = list.length===0
-    ? `<div style="color:#3D4F5E; font-size:13px;">${showAll?"連絡事項はまだありません。":"未確認の連絡事項はありません。"}</div>`
+    ? `<div style="color:#374151; font-size:13px;">${showAll?"連絡事項はまだありません。":"未確認の連絡事項はありません。"}</div>`
     : list.map(a=>{
       const done=hidden.has(String(a.id));
       return `
       <div class="todo-item ${done?"done":""}" style="align-items:flex-start;">
         <input type="checkbox" data-bann="${a.id}" ${done?"checked":""} style="margin-top:3px;">
         <div style="flex:1;">
-          <div style="font-size:11px; color:#8A959E;">${esc(a.author)}・${fmtDT(a.created_at)}</div>
+          <div style="font-size:11px; color:#6B7280;">${esc(a.author)}・${fmtDT(a.created_at)}</div>
           <div style="white-space:pre-wrap; font-size:13px;">${esc(a.content)}</div>
         </div>
       </div>`;
@@ -956,17 +1388,17 @@ function renderTodos(){
     ? `<div class="alert alert-warning" style="font-size:12px;"><b>期限が来ているTODO:</b>${overdue.map(t=>`${esc(t.text)}(${esc(t.assignee||"担当未設定")}・${esc(t.due_date)})`).join("　/　")}</div>`
     : "";
   $("todoList").innerHTML = list.length===0
-    ? `<div class="card" style="text-align:center; color:#3D4F5E; border-style:dashed;">TODOがありません。上のフォームから追加してください。</div>`
+    ? `<div class="card" style="text-align:center; color:#374151; border-style:dashed;">TODOがありません。上のフォームから追加してください。</div>`
     : `<div class="card">${list.map(t=>{
       const d=todoDueInfo(t);
-      const dueColor=!d? "#8A959E" : d.level==="over"? "#9B2C2C" : d.level==="today"? "#B34608" : d.level==="soon"? "#7A5B00" : "#3D4F5E";
+      const dueColor=!d? "#6B7280" : d.level==="over"? "#EF4444" : d.level==="today"? "#F59E0B" : d.level==="soon"? "#F59E0B" : "#374151";
       const cname=todoCaseName(t);
       return `
       <div class="todo-item ${t.done?"done":""}" style="align-items:flex-start;">
         <input type="checkbox" data-todo-t="${t.id}" ${t.done?"checked":""} style="margin-top:3px;">
         <div style="flex:1; min-width:0;">
           <div style="font-size:13.5px;">${esc(t.text)}</div>
-          <div style="font-size:11px; color:#6B7A87; margin-top:2px; display:flex; gap:10px; flex-wrap:wrap;">
+          <div style="font-size:11px; color:#6B7280; margin-top:2px; display:flex; gap:10px; flex-wrap:wrap;">
             <span><b>${esc(t.assignee||"担当未設定")}</b></span>
             ${t.due_date? `<span style="color:${dueColor}; font-weight:${d&&(d.level==="over"||d.level==="today")?800:400};">期限 ${esc(t.due_date)}${d?`(${d.label})`:""}</span>`:`<span>期限なし</span>`}
             ${cname? `<span data-todo-case="${t.case_id}" style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;">案件:${esc(cname)}</span>`:""}
@@ -1385,10 +1817,10 @@ async function openCalendarPicker(provider, onSaved, target){
 function renderCalPickList(){
   const {list, checked}=calPickState;
   $("calPickList").innerHTML=list.map(c=>`
-    <label style="display:flex; align-items:center; gap:8px; padding:5px 4px; border-bottom:1px solid #F2F3F1; font-size:13px;">
+    <label style="display:flex; align-items:center; gap:8px; padding:5px 4px; border-bottom:1px solid #F3F4F6; font-size:13px;">
       <input type="checkbox" data-calpick="${esc(c.id)}" ${checked.has(c.id)?"checked":""}>
       <span style="flex:1;">${esc(c.name)}</span>
-      ${c.primary?'<span class="chip" style="background:#EEF3F0; border:1px solid #D5E0DA; color:#2F6A4F;">メイン</span>':""}
+      ${c.primary?'<span class="chip" style="background:rgba(22,163,74,.08); border:1px solid rgba(22,163,74,.28); color:#16A34A;">メイン</span>':""}
     </label>`).join("");
   document.querySelectorAll("[data-calpick]").forEach(cb=>cb.addEventListener("change",()=>{
     if(cb.checked) calPickState.checked.add(cb.dataset.calpick);
@@ -1608,7 +2040,7 @@ function importICS(e){
 }
 
 /* ---------- 案件管理 ---------- */
-function catColor(cat){ const i=master.categories.indexOf(cat); return i>=0? CAT_PALETTE[i%CAT_PALETTE.length] : "#8A959E"; }
+function catColor(cat){ const i=master.categories.indexOf(cat); return i>=0? CAT_PALETTE[i%CAT_PALETTE.length] : "#6B7280"; }
 /* 実施日ベースの進捗アラート。実施日を過ぎても完了していない案件を「超過」として警告する
    (v3.6で納期欄を廃止したため、旧dueDateベースから実施日ベースに変更) */
 function dueInfo(cs){
@@ -1693,12 +2125,12 @@ function mfReviewItemRow(item){
   const caseOpts=mfCandidateCases().map(c=>`<option value="${c.id}">${esc(c.name)}(${esc(c.customerName||"顧客未設定")}・${esc(caseOwnerName(c))})</option>`).join("");
   const skipped=item.status==="skipped";
   return `
-    <div style="background:${skipped?"#F7F7F5":"#fff"}; border:1px solid ${skipped?"#DCE0E3":"#E5C56A"}; border-radius:6px; padding:8px 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; opacity:${skipped?0.8:1};">
-      <span class="chip" style="background:#17242F14; border:1px solid #17242F33;">${item.type==="quote"?"見積書":"請求書"}</span>
-      ${skipped?'<span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3; color:#6B7A87;">見送り済み</span>':""}
+    <div style="background:${skipped?"#F3F4F6":"#FFFFFF"}; border:1px solid ${skipped?"#D1D5DB":"rgba(245,158,11,.32)"}; border-radius:6px; padding:8px 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; opacity:${skipped?0.8:1};">
+      <span class="chip" style="background:rgba(13,27,42,.08); border:1px solid rgba(13,27,42,.20);">${item.type==="quote"?"見積書":"請求書"}</span>
+      ${skipped?'<span class="chip" style="background:#F3F4F6; border:1px solid #D1D5DB; color:#6B7280;">見送り済み</span>':""}
       <span style="font-weight:700;">${esc(item.partner_name||"(取引先不明)")}</span>
-      ${item.raw?.title? `<span style="color:#17242F;">${esc(item.raw.title)}</span>`:""}
-      <span style="color:#3D4F5E;">${item.amount?fmtYen(item.amount):""}${item.mf_number?`　No.${esc(item.mf_number)}`:""}${item.issue_date?`　${esc(item.issue_date)}`:""}</span>
+      ${item.raw?.title? `<span style="color:#0D1B2A;">${esc(item.raw.title)}</span>`:""}
+      <span style="color:#374151;">${item.amount?fmtYen(item.amount):""}${item.mf_number?`　No.${esc(item.mf_number)}`:""}${item.issue_date?`　${esc(item.issue_date)}`:""}</span>
       <div style="margin-left:auto; display:flex; gap:4px;">
         <input type="text" data-mf-search="${item.id}" placeholder="案件名・顧客で検索" style="width:130px; font-size:12px;">
         <select data-mf-link-sel="${item.id}" style="min-width:170px;"><option value="">紐付ける案件を選択</option>${caseOpts}</select>
@@ -1839,23 +2271,23 @@ function renderCustomers(){
   else if(sort==="recent") rows.sort((a,b)=>String(b.s.last).localeCompare(String(a.s.last)));
   else rows.sort((a,b)=>String(a.c.name).localeCompare(String(b.c.name),"ja"));
   $("customersPanel").innerHTML = rows.length===0
-    ? `<div class="card" style="text-align:center; color:#3D4F5E; border-style:dashed;">顧客がいません。MF連携の「今すぐ同期」で取引先を取り込むか、マスター管理から追加してください。</div>`
+    ? `<div class="card" style="text-align:center; color:#374151; border-style:dashed;">顧客がいません。MF連携の「今すぐ同期」で取引先を取り込むか、マスター管理から追加してください。</div>`
     : `<div style="overflow-x:auto;"><table class="grid">
         <tr><th>顧客名</th><th style="text-align:right;">案件数</th><th style="text-align:right;">累計売上</th><th style="text-align:right;">今期売上</th><th>最終取引日</th><th>担当者</th></tr>
         ${rows.map(({c,s})=>`
           <tr data-cust-open="${c.id}" style="cursor:pointer;">
-            <td style="font-weight:700;">${esc(c.name)}${c.name_kana?`<span style="font-weight:400; color:#8A959E; font-size:10.5px;">(${esc(c.name_kana)})</span>`:""}
-              ${c.mf_partner_id?'<span class="chip" style="background:#EEF3F0; border:1px solid #D5E0DA; color:#2F6A4F; margin-left:4px;">MF</span>':""}
-              ${s.dormant?'<span class="chip" style="background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C; margin-left:4px;">休眠</span>':""}
+            <td style="font-weight:700;">${esc(c.name)}${c.name_kana?`<span style="font-weight:400; color:#6B7280; font-size:10.5px;">(${esc(c.name_kana)})</span>`:""}
+              ${c.mf_partner_id?'<span class="chip" style="background:rgba(22,163,74,.08); border:1px solid rgba(22,163,74,.28); color:#16A34A; margin-left:4px;">MF</span>':""}
+              ${s.dormant?'<span class="chip" style="background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.30); color:#EF4444; margin-left:4px;">休眠</span>':""}
             </td>
-            <td style="text-align:right;">${s.count||`<span style="color:#C3C9CE;">―</span>`}</td>
-            <td style="text-align:right; font-weight:700;">${s.total?fmtYen(s.total):`<span style="color:#C3C9CE;">―</span>`}</td>
-            <td style="text-align:right;">${s.fyTotal?fmtYen(s.fyTotal):`<span style="color:#C3C9CE;">―</span>`}</td>
+            <td style="text-align:right;">${s.count||`<span style="color:#D1D5DB;">―</span>`}</td>
+            <td style="text-align:right; font-weight:700;">${s.total?fmtYen(s.total):`<span style="color:#D1D5DB;">―</span>`}</td>
+            <td style="text-align:right;">${s.fyTotal?fmtYen(s.fyTotal):`<span style="color:#D1D5DB;">―</span>`}</td>
             <td>${esc(s.last||"")}</td>
-            <td style="color:#3D4F5E;">${(()=>{ const ps=String(c.contact_person||"").split("\n").filter(Boolean); return ps.length? esc(ps[0])+(ps.length>1?`<span style="color:#8A959E; font-size:10.5px;"> 他${ps.length-1}名</span>`:"") : ""; })()}</td>
+            <td style="color:#374151;">${(()=>{ const ps=String(c.contact_person||"").split("\n").filter(Boolean); return ps.length? esc(ps[0])+(ps.length>1?`<span style="color:#6B7280; font-size:10.5px;"> 他${ps.length-1}名</span>`:"") : ""; })()}</td>
           </tr>`).join("")}
       </table></div>
-      <div style="font-size:11.5px; color:#6B7A87;">売上は受注額ベース(完了済み案件を含む)。最終取引から${DORMANT_DAYS}日以上経過した取引実績のある顧客に「休眠」を表示しています。行をクリックすると詳細を表示します。</div>`;
+      <div style="font-size:11.5px; color:#6B7280;">売上は受注額ベース(完了済み案件を含む)。最終取引から${DORMANT_DAYS}日以上経過した取引実績のある顧客に「休眠」を表示しています。行をクリックすると詳細を表示します。</div>`;
   document.querySelectorAll("[data-cust-open]").forEach(tr=>tr.addEventListener("click",()=>{ custDetailId=+tr.dataset.custOpen; renderCustomers(); }));
 }
 function renderCustomerDetail(){
@@ -1877,15 +2309,15 @@ function renderCustomerDetail(){
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
         <button class="btn btn-secondary btn-small" id="btnCustBack">← 一覧へ戻る</button>
         <span style="font-size:16px; font-weight:900;">${esc(c.name)}</span>
-        ${c.mf_partner_id?'<span class="chip" style="background:#EEF3F0; border:1px solid #D5E0DA; color:#2F6A4F;">MFと同期中</span>':""}
-        ${s.dormant?'<span class="chip" style="background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;">休眠</span>':""}
+        ${c.mf_partner_id?'<span class="chip" style="background:rgba(22,163,74,.08); border:1px solid rgba(22,163,74,.28); color:#16A34A;">MFと同期中</span>':""}
+        ${s.dormant?'<span class="chip" style="background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.30); color:#EF4444;">休眠</span>':""}
         <button class="btn btn-secondary btn-small" id="btnCustCases" style="margin-left:auto;">この顧客の案件を案件管理で見る</button>
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
-        <div style="flex:1; min-width:130px; background:#FAFAF9; border:1px solid #DCE0E3; border-radius:8px; padding:10px;"><div style="font-size:11px; color:#6B7A87; font-weight:700;">累計売上</div><div style="font-size:18px; font-weight:900;">${fmtYen(s.total)||"¥0"}</div></div>
-        <div style="flex:1; min-width:130px; background:#FAFAF9; border:1px solid #DCE0E3; border-radius:8px; padding:10px;"><div style="font-size:11px; color:#6B7A87; font-weight:700;">今期売上</div><div style="font-size:18px; font-weight:900;">${fmtYen(s.fyTotal)||"¥0"}</div></div>
-        <div style="flex:1; min-width:130px; background:#FAFAF9; border:1px solid #DCE0E3; border-radius:8px; padding:10px;"><div style="font-size:11px; color:#6B7A87; font-weight:700;">案件数</div><div style="font-size:18px; font-weight:900;">${s.count}件</div></div>
-        <div style="flex:1; min-width:130px; background:#FAFAF9; border:1px solid #DCE0E3; border-radius:8px; padding:10px;"><div style="font-size:11px; color:#6B7A87; font-weight:700;">最終取引日</div><div style="font-size:18px; font-weight:900;">${esc(s.last||"―")}</div></div>
+        <div style="flex:1; min-width:130px; background:#F3F4F6; border:1px solid #D1D5DB; border-radius:8px; padding:10px;"><div style="font-size:11px; color:#6B7280; font-weight:700;">累計売上</div><div style="font-size:18px; font-weight:900;">${fmtYen(s.total)||"¥0"}</div></div>
+        <div style="flex:1; min-width:130px; background:#F3F4F6; border:1px solid #D1D5DB; border-radius:8px; padding:10px;"><div style="font-size:11px; color:#6B7280; font-weight:700;">今期売上</div><div style="font-size:18px; font-weight:900;">${fmtYen(s.fyTotal)||"¥0"}</div></div>
+        <div style="flex:1; min-width:130px; background:#F3F4F6; border:1px solid #D1D5DB; border-radius:8px; padding:10px;"><div style="font-size:11px; color:#6B7280; font-weight:700;">案件数</div><div style="font-size:18px; font-weight:900;">${s.count}件</div></div>
+        <div style="flex:1; min-width:130px; background:#F3F4F6; border:1px solid #D1D5DB; border-radius:8px; padding:10px;"><div style="font-size:11px; color:#6B7280; font-weight:700;">最終取引日</div><div style="font-size:18px; font-weight:900;">${esc(s.last||"―")}</div></div>
       </div>
       <div class="modal-cols">
         ${field("顧客名"+(c.mf_partner_id?"(MFと同期中・次回同期でMF側の名称に上書きされます)":""),"cdName",c.name)}
@@ -1902,7 +2334,7 @@ function renderCustomerDetail(){
         ${field("住所","cdAddress",c.address)}
       </div>
       <label style="font-size:12px; font-weight:700; display:block; margin-top:8px;">メモ<textarea id="cdNote" class="w100" rows="2" style="margin-top:4px;">${esc(c.note||"")}</textarea></label>
-      <div style="font-size:11px; color:#6B7A87; margin-top:4px;">各欄は入力後にフォーカスを外すと自動保存されます。</div>
+      <div style="font-size:11px; color:#6B7280; margin-top:4px;">各欄は入力後にフォーカスを外すと自動保存されます。</div>
     </div>
     ${(()=>{
       const norm=mfNormName(c.name);
@@ -1912,15 +2344,15 @@ function renderCustomerDetail(){
       return `
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:6px;">重複顧客の統合</h3>
-      <div style="font-size:11.5px; color:#6B7A87; margin-bottom:8px;">MF側で重複登録されている取引先を、このシステム上でだけ1つの顧客にまとめます(MF側は変更しません)。統合すると相手の案件・売上はこの顧客「${esc(c.name)}」に合算され、担当者・連絡先も引き継がれます。</div>
+      <div style="font-size:11.5px; color:#6B7280; margin-bottom:8px;">MF側で重複登録されている取引先を、このシステム上でだけ1つの顧客にまとめます(MF側は変更しません)。統合すると相手の案件・売上はこの顧客「${esc(c.name)}」に合算され、担当者・連絡先も引き継がれます。</div>
       ${dupCandidates.length? `
       <div style="display:grid; gap:6px; margin-bottom:10px;">
-        <div style="font-size:12px; font-weight:700; color:#B34608;">同名の可能性がある顧客(${dupCandidates.length}件):</div>
+        <div style="font-size:12px; font-weight:700; color:#F59E0B;">同名の可能性がある顧客(${dupCandidates.length}件):</div>
         ${dupCandidates.map(x=>`
-          <div style="display:flex; align-items:center; gap:8px; border:1px solid #E5C56A; border-radius:6px; padding:6px 10px;">
+          <div style="display:flex; align-items:center; gap:8px; border:1px solid rgba(245,158,11,.32); border-radius:6px; padding:6px 10px;">
             <span style="font-weight:700;">${esc(x.name)}</span>
-            ${x.mf_partner_id?'<span class="chip" style="background:#EEF3F0; border:1px solid #D5E0DA; color:#2F6A4F;">MF</span>':""}
-            <span style="font-size:11.5px; color:#6B7A87;">${esc(String(x.contact_person||"").split("\n")[0]||"")}</span>
+            ${x.mf_partner_id?'<span class="chip" style="background:rgba(22,163,74,.08); border:1px solid rgba(22,163,74,.28); color:#16A34A;">MF</span>':""}
+            <span style="font-size:11.5px; color:#6B7280;">${esc(String(x.contact_person||"").split("\n")[0]||"")}</span>
             <button class="btn btn-small btn-primary" style="margin-left:auto;" data-cust-merge="${x.id}">この顧客に統合する</button>
           </div>`).join("")}
       </div>`:""}
@@ -1935,18 +2367,18 @@ function renderCustomerDetail(){
       <h3 style="font-weight:800; margin-bottom:10px;">年度別売上(受注額ベース)</h3>
       <div style="overflow-x:auto;"><table class="grid" style="margin-bottom:0;">
         <tr><th>期</th><th style="text-align:right;">件数</th><th style="text-align:right;">受注額</th><th style="text-align:right;">うち入金済</th></tr>
-        ${fyRows.map(r=>`<tr><td>${fyLabel(r.fy)}${r.fy===currentFY()?"(今期)":""}</td><td style="text-align:right;">${r.count}</td><td style="text-align:right; font-weight:700;">${fmtYen(r.total)}</td><td style="text-align:right; color:#2F6A4F;">${fmtYen(r.paid)||"―"}</td></tr>`).join("")}
+        ${fyRows.map(r=>`<tr><td>${fyLabel(r.fy)}${r.fy===currentFY()?"(今期)":""}</td><td style="text-align:right;">${r.count}</td><td style="text-align:right; font-weight:700;">${fmtYen(r.total)}</td><td style="text-align:right; color:#16A34A;">${fmtYen(r.paid)||"―"}</td></tr>`).join("")}
       </table></div>
     </div>`:""}
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:10px;">案件履歴(${list.length}件)</h3>
-      ${list.length===0? `<div style="color:#6B7A87; font-size:12px;">案件がありません。</div>` : `
+      ${list.length===0? `<div style="color:#6B7280; font-size:12px;">案件がありません。</div>` : `
       <div style="overflow-x:auto;"><table class="grid" style="margin-bottom:0;">
         <tr><th>実施日等</th><th>案件名</th><th>ステータス</th><th style="text-align:right;">見積額</th><th style="text-align:right;">受注額</th><th>請求状況</th><th>担当</th></tr>
         ${list.map(x=>`
           <tr data-cust-case="${x.id}" style="cursor:pointer;" title="クリックすると案件の編集画面を開きます">
             <td style="white-space:nowrap;">${esc(orderBaseDate(x)||"")}</td>
-            <td style="font-weight:700; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px;">${esc(x.name)}${isClosedCase(x)?`<span class="chip" style="background:${isLostCase(x)?"#FDECEC":"#EEF1F3"}; border:1px solid ${isLostCase(x)?"#E5A0A0":"#DCE0E3"}; color:${isLostCase(x)?"#9B2C2C":"#6B7A87"}; margin-left:4px;">${esc(x.status)}</span>`:""}</td>
+            <td style="font-weight:700; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px;">${esc(x.name)}${isClosedCase(x)?`<span class="chip" style="background:${isLostCase(x)?"rgba(239,68,68,.08)":"#F3F4F6"}; border:1px solid ${isLostCase(x)?"rgba(239,68,68,.30)":"#D1D5DB"}; color:${isLostCase(x)?"#EF4444":"#6B7280"}; margin-left:4px;">${esc(x.status)}</span>`:""}</td>
             <td>${esc(x.status)}</td>
             <td style="text-align:right;">${fmtYen(x.quoteAmount)||"―"}</td>
             <td style="text-align:right; font-weight:700;">${fmtYen(x.orderAmount)||"―"}</td>
@@ -1954,7 +2386,7 @@ function renderCustomerDetail(){
             <td>${esc(caseOwnerName(x))}</td>
           </tr>`).join("")}
       </table></div>
-      <div style="font-size:11px; color:#6B7A87; margin-top:6px;">案件をクリックすると編集画面が開きます。</div>`}
+      <div style="font-size:11px; color:#6B7280; margin-top:6px;">案件をクリックすると編集画面が開きます。</div>`}
     </div>`;
   document.querySelectorAll("[data-cust-case]").forEach(tr=>tr.addEventListener("click",()=>openCase(+tr.dataset.custCase)));
   $("btnCustBack").addEventListener("click",()=>{ custDetailId=null; renderCustomers(); });
@@ -2021,9 +2453,9 @@ function renderCustMergeBanner(){
       ${Object.entries(groups).map(([name,list])=>{
         const suggest=activeCustomers().find(m=>mfNormName(m.name)===mfNormName(name));
         return `
-        <div style="background:#fff; border:1px solid #E5C56A; border-radius:6px; padding:8px 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <div style="background:#FFFFFF; border:1px solid rgba(245,158,11,.32); border-radius:6px; padding:8px 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <span style="font-weight:700;">${esc(name)}</span>
-          <span style="color:#3D4F5E; font-size:12px;">${list.length}件の案件</span>
+          <span style="color:#374151; font-size:12px;">${list.length}件の案件</span>
           <select data-merge-sel="${esc(name)}" style="margin-left:auto; min-width:180px;">
             <option value="">紐付ける顧客を選択</option>${custOpts(suggest?suggest.id:"")}
           </select>
@@ -2086,30 +2518,30 @@ function renderCases(){
     .filter(c=>dashboardCaseFilter? dashboardCaseFilter.predicate(c) : true)
     .sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
   $("casesList").innerHTML = list.length===0
-    ? `<div class="card" style="text-align:center; color:#3D4F5E; border-style:dashed;">案件がありません。「＋ 案件追加」から登録してください。</div>`
+    ? `<div class="card" style="text-align:center; color:#374151; border-style:dashed;">案件がありません。「＋ 案件追加」から登録してください。</div>`
     : list.map(cs=>{
       const d=dueInfo(cs);
-      const dueChip=d? `<span class="chip" style="${d.level==="over"?"background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;":"background:#FFF8E6; border:1px solid #E5C56A; color:#7A5B00;"}">${esc(d.label)}</span>` : "";
+      const dueChip=d? `<span class="chip" style="${d.level==="over"?"background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.30); color:#EF4444;":"background:rgba(245,158,11,.09); border:1px solid rgba(245,158,11,.32); color:#F59E0B;"}">${esc(d.label)}</span>` : "";
       const amounts=[cs.quoteAmount?`見積 ${fmtYen(cs.quoteAmount)}${cs.quoteDate?`(${esc(cs.quoteDate)})`:""}`:"", cs.orderAmount?`受注 ${fmtYen(cs.orderAmount)}${cs.orderDate?`(${esc(cs.orderDate)})`:""}`:"", cs.billingStatus&&cs.billingStatus!=="未請求"?esc(cs.billingStatus):"", cs.paymentDate?`入金予定 ${esc(cs.paymentDate)}`:""].filter(Boolean).join("　");
       const flights=flightAssignments(cs);
       const thisWeekPlan=(cs.weeklyPlans||[]).find(p=>p.weekKey===currentWeekKey())?.text || "";
       const a=actionInfo(cs);
-      const actionChip=cs.nextAction? `<span class="chip" style="${a&&a.over?"background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;":"background:#EEF3FA; border:1px solid #BCD3E8; color:#2B6CB0;"}">次: ${esc(cs.nextAction)}${cs.nextActionDate?`(${esc(cs.nextActionDate)}${a&&a.over?"・期限超過":""})`:""}</span>`:"";
+      const actionChip=cs.nextAction? `<span class="chip" style="${a&&a.over?"background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.30); color:#EF4444;":"background:rgba(37,99,235,.08); border:1px solid rgba(37,99,235,.28); color:#2563EB;"}">次: ${esc(cs.nextAction)}${cs.nextActionDate?`(${esc(cs.nextActionDate)}${a&&a.over?"・期限超過":""})`:""}</span>`:"";
       return `
-      <div class="card" style="border-left:4px solid ${isLostCase(cs)?"#9B2C2C":catColor(cs.category)}; opacity:${isClosedCase(cs)?0.6:1};">
+      <div class="card case-card" style="border-left:4px solid ${isLostCase(cs)?"#EF4444":catColor(cs.category)}; opacity:${isClosedCase(cs)?0.6:1};">
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <span class="chip" style="background:${catColor(cs.category)}18; border:1px solid ${catColor(cs.category)}44; color:${catColor(cs.category)};">${esc(cs.category)}</span>
           <span style="font-size:14.5px; font-weight:800;">${esc(cs.name)}</span>
-          <span class="chip" style="${isLostCase(cs)?"background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;":isDoneCase(cs)?"background:#EEF3F0; border:1px solid #D5E0DA; color:#2F6A4F;":"background:#17242F14; border:1px solid #17242F33;"}">${esc(cs.status)}</span>
-          ${isLostCase(cs)&&cs.lostReason?`<span class="chip" style="background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C;">理由:${esc(cs.lostReason)}</span>`:""}
+          <span class="chip" style="${isLostCase(cs)?"background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.30); color:#EF4444;":isDoneCase(cs)?"background:rgba(22,163,74,.08); border:1px solid rgba(22,163,74,.28); color:#16A34A;":"background:rgba(13,27,42,.08); border:1px solid rgba(13,27,42,.20);"}">${esc(cs.status)}</span>
+          ${isLostCase(cs)&&cs.lostReason?`<span class="chip" style="background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.30); color:#EF4444;">理由:${esc(cs.lostReason)}</span>`:""}
           ${dueChip}
           ${actionChip}
-          <span style="margin-left:auto; font-size:12px; color:#3D4F5E;">${esc(caseOwnerName(cs)||"担当未設定")}｜${cs.manday||0}人日</span>
+          <span style="margin-left:auto; font-size:12px; color:#374151;">${esc(caseOwnerName(cs)||"担当未設定")}｜${cs.manday||0}人日</span>
         </div>
-        ${cs.customerName? `<div style="margin-top:5px; font-size:12.5px; font-weight:700; color:#17242F;">顧客:${esc(cs.customerName)}${cs.execDate?`　<span style="font-weight:400; color:#3D4F5E;">実施日:${esc(cs.execDate)}</span>`:""}</div>`: (cs.execDate?`<div style="margin-top:5px; font-size:12.5px; color:#3D4F5E;">実施日:${esc(cs.execDate)}</div>`:"")}
-        ${flights.length? `<div style="margin-top:4px; font-size:12px; color:#3D4F5E;">フライト:${flights.map(f=>`${esc(f.name)}${f.ratio?`(${f.ratio}%)`:""}`).join("　")}</div>`:""}
-        ${amounts? `<div style="margin-top:4px; font-size:12.5px; color:#2F6A4F; font-weight:700;">${amounts}</div>`:""}
-        ${thisWeekPlan||cs.note? `<div style="margin-top:5px; font-size:12px; color:#3D4F5E; white-space:pre-wrap;">${thisWeekPlan?`今週の予定:${esc(thisWeekPlan)}\n`:""}${cs.note?`備考:${esc(cs.note)}`:""}</div>`:""}
+        ${cs.customerName? `<div style="margin-top:5px; font-size:12.5px; font-weight:700; color:#0D1B2A;">顧客:${esc(cs.customerName)}${cs.execDate?`　<span style="font-weight:400; color:#374151;">実施日:${esc(cs.execDate)}</span>`:""}</div>`: (cs.execDate?`<div style="margin-top:5px; font-size:12.5px; color:#374151;">実施日:${esc(cs.execDate)}</div>`:"")}
+        ${flights.length? `<div style="margin-top:4px; font-size:12px; color:#374151;">フライト:${flights.map(f=>`${esc(f.name)}${f.ratio?`(${f.ratio}%)`:""}`).join("　")}</div>`:""}
+        ${amounts? `<div style="margin-top:4px; font-size:12.5px; color:#16A34A; font-weight:700;">${amounts}</div>`:""}
+        ${thisWeekPlan||cs.note? `<div style="margin-top:5px; font-size:12px; color:#374151; white-space:pre-wrap;">${thisWeekPlan?`今週の予定:${esc(thisWeekPlan)}\n`:""}${cs.note?`備考:${esc(cs.note)}`:""}</div>`:""}
         <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
           <button class="btn btn-secondary btn-small" data-case-edit="${cs.id}">編集</button>
           <button class="btn btn-secondary btn-small" data-case-cm="${cs.id}">コメント${commentCounts[cs.id]?`(${commentCounts[cs.id]})`:""}</button>
@@ -2245,7 +2677,7 @@ function openCase(id, prefill){
   const custOpts=`<option value="">(選択なし・下に直接入力)</option>`+customers.map(c=>`<option value="${c.id}" ${String(editingCase.customerId)===String(c.id)?"selected":""}>${esc(c.name)}</option>`).join("");
   $("caseFormGrid").innerHTML=`
     <div class="modal-cols">
-      <label style="font-size:12px; font-weight:700;">営業担当<select id="cfSalesOwner" class="w100" style="margin-top:4px;">${optBlank(master.members, editingCase.salesOwner||editingCase.owner)}</select><span style="font-weight:400; color:#6B7A87; font-size:11px;">受注額の集計・案件の表記に使用</span></label>
+      <label style="font-size:12px; font-weight:700;">営業担当<select id="cfSalesOwner" class="w100" style="margin-top:4px;">${optBlank(master.members, editingCase.salesOwner||editingCase.owner)}</select><span style="font-weight:400; color:#6B7280; font-size:11px;">受注額の集計・案件の表記に使用</span></label>
       <label style="font-size:12px; font-weight:700;">分類<select id="cfCat" class="w100" style="margin-top:4px;">${opt(master.categories, editingCase.category)}</select></label>
     </div>
     ${(()=>{
@@ -2254,9 +2686,9 @@ function openCase(id, prefill){
           <div style="display:flex; gap:6px; align-items:center; margin-top:4px;">
             <select id="${selId}" style="flex:1; min-width:0;">${optBlank(master.members, name)}</select>
             <input type="number" id="${ratioId}" value="${esc(ratio||"")}" min="0" max="100" step="1" placeholder="比率" style="width:78px;">
-            <span style="font-weight:400; color:#6B7A87; font-size:12px;">%</span>
+            <span style="font-weight:400; color:#6B7280; font-size:12px;">%</span>
           </div>
-          ${hint?`<span style="font-weight:400; color:#6B7A87; font-size:11px;">${hint}</span>`:""}
+          ${hint?`<span style="font-weight:400; color:#6B7280; font-size:11px;">${hint}</span>`:""}
         </label>`;
       return `
       <div class="modal-cols">
@@ -2278,23 +2710,23 @@ function openCase(id, prefill){
       <label style="font-size:12px; font-weight:700;">今週人日<input type="number" id="cfManday" class="w100" value="${esc(editingCase.manday)}" min="0" step="0.5" style="margin-top:4px;"></label>
     </div>
     <div class="modal-cols">
-      <label style="font-size:12px; font-weight:700;">受注日<input type="date" id="cfOrderDate" class="w100" value="${esc(editingCase.orderDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7A87; font-size:11px;">受注額の計上月になります</span></label>
+      <label style="font-size:12px; font-weight:700;">受注日<input type="date" id="cfOrderDate" class="w100" value="${esc(editingCase.orderDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7280; font-size:11px;">受注額の計上月になります</span></label>
       <label style="font-size:12px; font-weight:700;">実施日<input type="date" id="cfExecDate" class="w100" value="${esc(editingCase.execDate||"")}" style="margin-top:4px;"></label>
     </div>
     <div class="modal-cols">
       <label style="font-size:12px; font-weight:700;">見積額(円)<input type="number" id="cfQuote" class="w100" value="${esc(editingCase.quoteAmount||"")}" min="0" step="1000" style="margin-top:4px;"></label>
-      <label style="font-size:12px; font-weight:700;">見積日<input type="date" id="cfQuoteDate" class="w100" value="${esc(editingCase.quoteDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7A87; font-size:11px;">MF連携時は見積の作成日が自動で入ります</span></label>
+      <label style="font-size:12px; font-weight:700;">見積日<input type="date" id="cfQuoteDate" class="w100" value="${esc(editingCase.quoteDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7280; font-size:11px;">MF連携時は見積の作成日が自動で入ります</span></label>
     </div>
     <div class="modal-cols">
       <label style="font-size:12px; font-weight:700;">受注額(円)<input type="number" id="cfOrder" class="w100" value="${esc(editingCase.orderAmount||"")}" min="0" step="1000" style="margin-top:4px;"></label>
       <label style="font-size:12px; font-weight:700;">請求状況<select id="cfBilling" class="w100" style="margin-top:4px;">${opt(BILLING_STATUSES, editingCase.billingStatus||BILLING_STATUSES[0])}</select></label>
     </div>
     <div class="modal-cols">
-      <label style="font-size:12px; font-weight:700;">入金予定日<input type="date" id="cfPayDate" class="w100" value="${esc(editingCase.paymentDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7A87; font-size:11px;">入金予定の計上月になります</span></label>
+      <label style="font-size:12px; font-weight:700;">入金予定日<input type="date" id="cfPayDate" class="w100" value="${esc(editingCase.paymentDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7280; font-size:11px;">入金予定の計上月になります</span></label>
     </div>
     <div class="modal-cols">
       <label style="font-size:12px; font-weight:700;">次回アクション<input type="text" id="cfNextAction" class="w100" value="${esc(editingCase.nextAction||"")}" placeholder="例:見積の返事を確認する" style="margin-top:4px;"></label>
-      <label style="font-size:12px; font-weight:700;">アクション期日<input type="date" id="cfNextActionDate" class="w100" value="${esc(editingCase.nextActionDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7A87; font-size:11px;">期日を過ぎると案件管理にアラート表示</span></label>
+      <label style="font-size:12px; font-weight:700;">アクション期日<input type="date" id="cfNextActionDate" class="w100" value="${esc(editingCase.nextActionDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7280; font-size:11px;">期日を過ぎると案件管理にアラート表示</span></label>
     </div>
     ${(()=>{
       const curKey=currentWeekKey();
@@ -2306,12 +2738,12 @@ function openCase(id, prefill){
       return `
       <label style="font-size:12px; font-weight:700;">今週の予定(${esc(weekKeyLabel(curKey))})<textarea id="cfThisWeekPlan" class="w100" rows="2" style="margin-top:4px;">${esc(curText)}</textarea></label>
       ${history.length? `
-      <div style="border-top:1px solid #EEE; padding-top:8px;">
-        <div style="font-size:11px; font-weight:700; color:#6B7A87; margin-bottom:6px;">予定の履歴</div>
+      <div style="border-top:1px solid #D1D5DB; padding-top:8px;">
+        <div style="font-size:11px; font-weight:700; color:#6B7280; margin-bottom:6px;">予定の履歴</div>
         <div style="max-height:180px; overflow-y:auto; display:grid; gap:6px;">
           ${history.map(p=>`
-            <div style="font-size:12px; background:#FAFAF9; border:1px solid #EEE; border-radius:6px; padding:6px 8px;">
-              <div style="color:#8A959E; font-size:10.5px;">${esc(weekKeyLabel(p.weekKey))}${p.enteredAt?`・入力日 ${esc(fmtDT(p.enteredAt))}`:""}${p.author?`・${esc(p.author)}`:""}</div>
+            <div style="font-size:12px; background:#F3F4F6; border:1px solid #D1D5DB; border-radius:6px; padding:6px 8px;">
+              <div style="color:#6B7280; font-size:10.5px;">${esc(weekKeyLabel(p.weekKey))}${p.enteredAt?`・入力日 ${esc(fmtDT(p.enteredAt))}`:""}${p.author?`・${esc(p.author)}`:""}</div>
               <div style="white-space:pre-wrap; margin-top:2px;">${esc(p.text)}</div>
             </div>`).join("")}
         </div>
@@ -2338,9 +2770,9 @@ function flightRatioState(){
 function renderRatioMsg(){
   const el=$("cfRatioMsg"); if(!el) return;
   const s=flightRatioState();
-  if(s.empty){ el.textContent="フライト担当は未設定です"; el.style.color="#8A959E"; return; }
+  if(s.empty){ el.textContent="フライト担当は未設定です"; el.style.color="#6B7280"; return; }
   el.textContent=`比率の合計:${s.total}%${s.ok?"":" (100%にしてください)"}`;
-  el.style.color=s.ok?"#2F6A4F":"#9B2C2C";
+  el.style.color=s.ok?"#16A34A":"#EF4444";
 }
 async function saveCase(){
   const before=editingCase.id? cases.find(x=>x.id===editingCase.id) : null;
@@ -2436,14 +2868,14 @@ async function openFiles(caseId){
 async function renderFiles(){
   const {data}=await sb.from("case_files").select("*").eq("case_id",fileCaseId).order("id",{ascending:false});
   $("fileList").innerHTML=(data||[]).length===0
-    ? `<div style="color:#6B7A87; font-size:12.5px;">まだファイルがありません。</div>`
+    ? `<div style="color:#6B7280; font-size:12.5px;">まだファイルがありません。</div>`
     : data.map(f=>{
       const url=`${SUPABASE_URL}/storage/v1/object/public/case-files/${f.path}`;
       const sizeMB=f.size? (f.size/1048576).toFixed(1)+"MB" : "";
       return `
-      <div style="display:flex; align-items:center; gap:8px; border-bottom:1px solid #EEE; padding:7px 2px;">
-        <a href="${url}" target="_blank" rel="noopener" style="flex:1; font-size:13px; color:#B34608; font-weight:700; text-decoration:none; word-break:break-all;">${esc(f.filename)}</a>
-        <span style="font-size:11px; color:#8A959E; white-space:nowrap;">${esc(f.author||"")}・${fmtDT(f.created_at)}${sizeMB?`・${sizeMB}`:""}</span>
+      <div style="display:flex; align-items:center; gap:8px; border-bottom:1px solid #D1D5DB; padding:7px 2px;">
+        <a href="${url}" target="_blank" rel="noopener" style="flex:1; font-size:13px; color:#F59E0B; font-weight:700; text-decoration:none; word-break:break-all;">${esc(f.filename)}</a>
+        <span style="font-size:11px; color:#6B7280; white-space:nowrap;">${esc(f.author||"")}・${fmtDT(f.created_at)}${sizeMB?`・${sizeMB}`:""}</span>
         <button class="btn btn-small btn-secondary btn-danger" data-file-del="${f.id}" data-file-path="${esc(f.path)}">削除</button>
       </div>`;}).join("");
   document.querySelectorAll("[data-file-del]").forEach(b=>b.addEventListener("click",async ()=>{
@@ -2480,11 +2912,11 @@ async function openHistory(caseId){
   $("historyModalTitle").textContent=`進捗履歴:${c? c.name:""}`;
   const {data}=await sb.from("case_history").select("*").eq("case_id",caseId).order("id",{ascending:false});
   $("historyList").innerHTML=(data||[]).length===0
-    ? `<div style="color:#6B7A87; font-size:12.5px;">履歴はまだありません(編集・ステータス変更で自動記録されます)。</div>`
+    ? `<div style="color:#6B7280; font-size:12.5px;">履歴はまだありません(編集・ステータス変更で自動記録されます)。</div>`
     : data.map(h=>`
-      <div style="display:flex; gap:10px; border-bottom:1px solid #EEE; padding:8px 2px; font-size:12.5px;">
-        <span style="color:#8A959E; min-width:96px;">${fmtDT(h.created_at)}</span>
-        <span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3; height:fit-content;">${esc(h.action)}</span>
+      <div style="display:flex; gap:10px; border-bottom:1px solid #D1D5DB; padding:8px 2px; font-size:12.5px;">
+        <span style="color:#6B7280; min-width:96px;">${fmtDT(h.created_at)}</span>
+        <span class="chip" style="background:#F3F4F6; border:1px solid #D1D5DB; height:fit-content;">${esc(h.action)}</span>
         <span style="flex:1;"><strong>${esc(h.author)}</strong>　${esc(h.detail||"")}</span>
       </div>`).join("");
   $("historyModal").classList.add("show");
@@ -2503,21 +2935,21 @@ function renderKanban(){
   $("kanbanBoard").innerHTML=master.statuses.map((st,si)=>{
     const items=active.filter(c=>c.status===st);
     return `
-    <div class="kb-col" data-kb-col="${esc(st)}" style="min-width:230px; width:230px; flex-shrink:0; background:#fff; border:1px solid #DCE0E3; border-radius:10px;">
-      <div style="background:#17242F; color:#fff; border-radius:10px 10px 0 0; padding:8px 10px; font-size:12.5px; font-weight:800; display:flex; justify-content:space-between;">
-        <span>${esc(st)}</span><span style="color:#9FB0BC;">${items.length}</span>
+    <div class="kb-col" data-kb-col="${esc(st)}" style="min-width:230px; width:230px; flex-shrink:0; background:#FFFFFF; border:1px solid #D1D5DB; border-radius:10px;">
+      <div style="background:#0D1B2A; color:#FFFFFF; border-radius:10px 10px 0 0; padding:8px 10px; font-size:12.5px; font-weight:800; display:flex; justify-content:space-between;">
+        <span>${esc(st)}</span><span style="color:#D1D5DB;">${items.length}</span>
       </div>
       <div data-kb-dropzone style="padding:8px; display:grid; gap:8px; min-height:60px;">
-        ${items.length===0? `<div style="color:#B0B7BD; font-size:11.5px; text-align:center; padding:10px 0; pointer-events:none;">なし</div>` : items.map(c=>{
+        ${items.length===0? `<div style="color:#6B7280; font-size:11.5px; text-align:center; padding:10px 0; pointer-events:none;">なし</div>` : items.map(c=>{
           const d=dueInfo(c);
           const draggable=!isClosedCase(c);
           return `
-          <div class="kb-card" ${draggable?`draggable="true" data-kb-card="${c.id}"`:""} style="border:1px solid #DCE0E3; border-left:4px solid ${isLostCase(c)?"#9B2C2C":catColor(c.category)}; border-radius:7px; padding:8px; ${isClosedCase(c)?"opacity:0.6; background:#FAFAF9;":""}">
+          <div class="kb-card" ${draggable?`draggable="true" data-kb-card="${c.id}"`:""} style="border:1px solid #D1D5DB; border-left:4px solid ${isLostCase(c)?"#EF4444":catColor(c.category)}; border-radius:7px; padding:8px; ${isClosedCase(c)?"opacity:0.6; background:#F3F4F6;":""}">
             <div style="font-size:12.5px; font-weight:800; line-height:1.4;">${esc(c.name)}
-              ${isLostCase(c)&&c.lostReason?`<span class="chip" style="background:#FDECEC; border:1px solid #E5A0A0; color:#9B2C2C; margin-left:4px;">${esc(c.lostReason)}</span>`:""}
+              ${isLostCase(c)&&c.lostReason?`<span class="chip" style="background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.30); color:#EF4444; margin-left:4px;">${esc(c.lostReason)}</span>`:""}
             </div>
-            <div style="font-size:11px; color:#3D4F5E; margin-top:3px;">${esc(caseOwnerName(c))}${c.customerName?`｜${esc(c.customerName)}`:""}</div>
-            ${c.execDate? `<div style="font-size:11px; margin-top:2px; color:${d? (d.level==="over"?"#9B2C2C":"#7A5B00") : "#8A959E"}; font-weight:${d?800:400};">実施日 ${esc(c.execDate)}${d?`(${d.label})`:""}</div>`:""}
+            <div style="font-size:11px; color:#374151; margin-top:3px;">${esc(caseOwnerName(c))}${c.customerName?`｜${esc(c.customerName)}`:""}</div>
+            ${c.execDate? `<div style="font-size:11px; margin-top:2px; color:${d? (d.level==="over"?"#EF4444":"#F59E0B") : "#6B7280"}; font-weight:${d?800:400};">実施日 ${esc(c.execDate)}${d?`(${d.label})`:""}</div>`:""}
             <div style="display:flex; justify-content:space-between; margin-top:6px;">
               ${isClosedCase(c)
                 ? `<button class="btn btn-small btn-secondary" data-kb-reopen="${c.id}">戻す</button>
@@ -2639,11 +3071,20 @@ function renderDashboard(){
   const paid=sum(cases.filter(c=>isOrderedCase(c)&&c.billingStatus==="入金済"),c=>num(c.orderAmount));
   const ym=new Date(); const thisMonth=`${ym.getFullYear()}-${String(ym.getMonth()+1).padStart(2,"0")}`;
   const monthExec=cases.filter(c=>(c.execDate||"").startsWith(thisMonth));
-  const kpi=(label,val,sub)=>`
-    <div style="flex:1; min-width:150px; background:#fff; border:1px solid #DCE0E3; border-radius:10px; padding:12px 14px;">
-      <div style="font-size:11px; color:#6B7A87; font-weight:700;">${label}</div>
-      <div style="font-size:20px; font-weight:900; color:#17242F; margin-top:2px;">${val}</div>
-      ${sub?`<div style="font-size:10.5px; color:#8A959E; margin-top:1px;">${sub}</div>`:""}
+  const recentCases=[...active].sort((a,b)=>(Number(b.updatedAt)||Number(b.id)||0)-(Number(a.updatedAt)||Number(a.id)||0)).slice(0,5);
+  const attention=[];
+  active.forEach(c=>{
+    const d=dueInfo(c), a=actionInfo(c);
+    if(d) attention.push({tone:d.level==="over"?"danger":"warning", title:c.name, meta:d.label, value:caseOwnerName(c)||"担当未設定"});
+    if(a&&(a.over||a.today)) attention.push({tone:a.over?"danger":"warning", title:c.nextAction||c.name, meta:a.over?`アクション期限超過 ${Math.abs(a.diff)}日`:`アクション期限 本日`, value:caseOwnerName(c)||"担当未設定"});
+  });
+  attention.sort((a,b)=>(a.tone==="danger"?-1:1)-(b.tone==="danger"?-1:1));
+  const dashboardDate=`${ym.getFullYear()}年${ym.getMonth()+1}月${ym.getDate()}日 更新`;
+  const kpi=(label,val,sub,tone="accent")=>`
+    <div class="kpi-card kpi-${tone}" style="flex:1; min-width:150px; background:#FFFFFF; border:1px solid #D1D5DB; border-radius:10px; padding:12px 14px;">
+      <div style="font-size:11px; color:#6B7280; font-weight:700;">${label}</div>
+      <div style="font-size:20px; font-weight:900; color:#0D1B2A; margin-top:2px;">${val}</div>
+      ${sub?`<div style="font-size:10.5px; color:#6B7280; margin-top:1px;">${sub}</div>`:""}
     </div>`;
   const maxBar=(rows)=>Math.max(1,...rows.map(r=>r.amount));
   /* 各行が自分の絞り込み条件(predicate)を持つ。件数の表示とクリック後の一覧が
@@ -2652,22 +3093,22 @@ function renderDashboard(){
   const barTable=(title, rows, note)=>{
     const mx=maxBar(rows);
     return `
-    <div class="card">
+    <div class="card dashboard-panel-card">
       <h3 style="font-weight:800; margin-bottom:10px;">${title}</h3>
-      ${rows.length===0? `<div style="color:#6B7A87; font-size:12px;">対象データがありません。</div>` : rows.map(r=>{
+      ${rows.length===0? `<div style="color:#6B7280; font-size:12px;">対象データがありません。</div>` : rows.map(r=>{
         const key=`${title}|${r.label}`;
         if(r.predicate) barPredicates[key]={label:`${title.replace(/\s*\(.*\)$/,"")}:${r.label}`, predicate:r.predicate};
         const clickable=!!r.predicate;
         return `
-        <div ${clickable?`data-dash-bar="${esc(key)}"`:""} style="display:flex; align-items:center; gap:10px; margin-bottom:7px; ${clickable?"cursor:pointer;":""}">
+        <div class="dash-bar-row" ${clickable?`data-dash-bar="${esc(key)}"`:""} style="display:flex; align-items:center; gap:10px; margin-bottom:7px; ${clickable?"cursor:pointer;":""}">
           <span style="width:90px; font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; ${clickable?"text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px;":""}">${esc(r.label)}</span>
-          <div style="flex:1; background:#F2F3F1; border-radius:4px; height:20px; position:relative;">
-            <div style="width:${Math.round(r.amount/mx*100)}%; min-width:${r.amount>0?"3px":"0"}; background:${r.color||"#E8590C"}; height:100%; border-radius:4px;"></div>
+          <div style="flex:1; background:#F3F4F6; border-radius:4px; height:20px; position:relative;">
+            <div style="width:${Math.round(r.amount/mx*100)}%; min-width:${r.amount>0?"3px":"0"}; background:${r.color||"#D4AF37"}; height:100%; border-radius:4px;"></div>
           </div>
           <span style="width:150px; font-size:12px; text-align:right; white-space:nowrap;">${r.count}件${r.amount?`｜${fmtYen(r.amount)}`:""}${r.extra||""}</span>
         </div>`;
       }).join("")}
-      ${note?`<div style="font-size:11px; color:#6B7A87; margin-top:4px;">${note}</div>`:""}
+      ${note?`<div style="font-size:11px; color:#6B7280; margin-top:4px;">${note}</div>`:""}
     </div>`;
   };
   /* 表示する期を先に決める(下の3グラフも同じ期で集計するため) */
@@ -2694,7 +3135,7 @@ function renderDashboard(){
     const hit=(c)=> m==="未分類"? !caseOwnerName(c) : caseOwnerName(c)===m;
     const matched=ordered.filter(hit);
     return {
-      label:m, color: m==="未分類"? "#8A959E" : undefined,
+      label:m, color: m==="未分類"? "#6B7280" : undefined,
       count:matched.length, amount:sum(matched,c=>num(c.orderAmount)),
       predicate:(c)=>isOrdered(c)&&hit(c),
     };
@@ -2713,7 +3154,7 @@ function renderDashboard(){
     const hit=(c)=> m==="未分類"? flightAssignments(c).length===0 : flightAssignments(c).some(f=>f.name===m);
     const matched=ordered.filter(hit);
     return {
-      label:m, color: m==="未分類"? "#8A959E" : undefined,
+      label:m, color: m==="未分類"? "#6B7280" : undefined,
       count:matched.length,
       amount: m==="未分類"? sum(matched,c=>num(c.orderAmount)) : sum(matched,c=>flightShare(c,m)),
       predicate:(c)=>isOrdered(c)&&hit(c),
@@ -2769,52 +3210,52 @@ function renderDashboard(){
   undated.restAmt=undated.payAmt-undated.paidAmt;
   undated.any=!!(undated.orderCount||undated.quoteAmt||undated.payAmt);
   const mMax=Math.max(1,...monthRows.map(r=>Math.max(r.orderAmt, r.payAmt)));
-  const zero=(v)=>v? fmtYen(v) : `<span style="color:#C3C9CE;">―</span>`;
+  const zero=(v)=>v? fmtYen(v) : `<span style="color:#D1D5DB;">―</span>`;
   const fyOptions=fyList.map(f=>`<option value="${f}" ${f===dashFY?"selected":""}>${fyLabel(f)}${f===currentFY()?"(今期)":""}</option>`).join("");
 
   const fyPanel=`
-    <div class="card">
+    <div class="card dashboard-panel-card dashboard-finance-panel">
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
         <h3 style="font-weight:800;">期・月次の受注/売上(予測)</h3>
         <select id="dashFYSelect" style="margin-left:auto;">${fyOptions}</select>
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
-        ${kpi("受注(期計)", fmtYen(cur.orderAmt)||"¥0", `${cur.orderCount}件　${diffTxt(cur.orderAmt, prev.orderAmt)}`)}
-        ${kpi("見込(見積・未受注)", fmtYen(cur.quoteAmt)||"¥0", "進行中で受注額未入力")}
-        ${kpi("売上予測(入金予定計)", fmtYen(cur.payAmt)||"¥0", diffTxt(cur.payAmt, prev.payAmt))}
-        ${kpi("入金済(実績)", fmtYen(cur.paidAmt)||"¥0", `達成率 ${cur.payAmt? Math.round(cur.paidAmt/cur.payAmt*100):0}%`)}
-        ${kpi("入金待ち残", fmtYen(cur.payAmt-cur.paidAmt)||"¥0", "予定日ベース")}
+        ${kpi("受注(期計)", fmtYen(cur.orderAmt)||"¥0", `${cur.orderCount}件　${diffTxt(cur.orderAmt, prev.orderAmt)}`, "accent")}
+        ${kpi("見込(見積・未受注)", fmtYen(cur.quoteAmt)||"¥0", "進行中で受注額未入力", "action")}
+        ${kpi("売上予測(入金予定計)", fmtYen(cur.payAmt)||"¥0", diffTxt(cur.payAmt, prev.payAmt), "success")}
+        ${kpi("入金済(実績)", fmtYen(cur.paidAmt)||"¥0", `達成率 ${cur.payAmt? Math.round(cur.paidAmt/cur.payAmt*100):0}%`, "success")}
+        ${kpi("入金待ち残", fmtYen(cur.payAmt-cur.paidAmt)||"¥0", "予定日ベース", "warning")}
       </div>
       ${cur.noPayCount? `<div class="alert alert-warning" style="font-size:12px;">入金予定日が未設定の受注が ${cur.noPayCount}件(${fmtYen(cur.noPayDate)})あります。月次の売上予測に含まれていません。案件管理から入金予定日を入力してください。</div>`:""}
       <div style="overflow-x:auto;">
       <table class="grid" style="margin-bottom:8px;">
         <tr><th>月</th><th style="text-align:right;">受注件数</th><th style="text-align:right;">受注額</th><th style="text-align:right;">見込(見積)</th><th style="text-align:right;">入金予定</th><th style="text-align:right;">入金済</th><th style="text-align:right;">未入金</th><th style="width:150px;">受注/入金予定</th></tr>
         ${undated.any? `
-          <tr style="background:#FFF8E6;">
-            <td style="font-weight:700; white-space:nowrap; color:#7A5B00;">日付未指定</td>
-            <td data-dash-undated="1" style="text-align:right; ${undated.orderCount?"cursor:pointer; text-decoration:underline; text-decoration-style:dotted;":""}">${undated.orderCount||`<span style="color:#C3C9CE;">―</span>`}</td>
+          <tr style="background:rgba(245,158,11,.09);">
+            <td style="font-weight:700; white-space:nowrap; color:#F59E0B;">日付未指定</td>
+            <td data-dash-undated="1" style="text-align:right; ${undated.orderCount?"cursor:pointer; text-decoration:underline; text-decoration-style:dotted;":""}">${undated.orderCount||`<span style="color:#D1D5DB;">―</span>`}</td>
             <td style="text-align:right; font-weight:700;">${zero(undated.orderAmt)}</td>
-            <td style="text-align:right; color:#6B7A87;">${zero(undated.quoteAmt)}</td>
+            <td style="text-align:right; color:#6B7280;">${zero(undated.quoteAmt)}</td>
             <td style="text-align:right;">${zero(undated.payAmt)}</td>
-            <td style="text-align:right; color:#2F6A4F;">${zero(undated.paidAmt)}</td>
-            <td style="text-align:right; color:${undated.restAmt>0?"#B34608":"#8A959E"};">${zero(undated.restAmt)}</td>
-            <td style="font-size:10.5px; color:#7A5B00;">期合計には含めていません</td>
+            <td style="text-align:right; color:#16A34A;">${zero(undated.paidAmt)}</td>
+            <td style="text-align:right; color:${undated.restAmt>0?"#F59E0B":"#6B7280"};">${zero(undated.restAmt)}</td>
+            <td style="font-size:10.5px; color:#F59E0B;">期合計には含めていません</td>
           </tr>`:""}
         ${monthRows.map(r=>`
-          <tr style="background:${r.ym===nowYm?"#FFF0E6":""};">
+          <tr style="background:${r.ym===nowYm?"rgba(212,175,55,.12)":""};">
             <td style="font-weight:${r.ym===nowYm?800:600}; white-space:nowrap;">${r.year}/${r.label}</td>
-            <td data-dash-month="${r.ym}" style="text-align:right; ${r.orderCount?"cursor:pointer; text-decoration:underline; text-decoration-style:dotted;":""}">${r.orderCount||`<span style="color:#C3C9CE;">―</span>`}</td>
+            <td data-dash-month="${r.ym}" style="text-align:right; ${r.orderCount?"cursor:pointer; text-decoration:underline; text-decoration-style:dotted;":""}">${r.orderCount||`<span style="color:#D1D5DB;">―</span>`}</td>
             <td style="text-align:right; font-weight:700;">${zero(r.orderAmt)}</td>
-            <td style="text-align:right; color:#6B7A87;">${zero(r.quoteAmt)}</td>
+            <td style="text-align:right; color:#6B7280;">${zero(r.quoteAmt)}</td>
             <td style="text-align:right;">${zero(r.payAmt)}</td>
-            <td style="text-align:right; color:#2F6A4F;">${zero(r.paidAmt)}</td>
-            <td style="text-align:right; color:${r.restAmt>0?"#B34608":"#8A959E"};">${zero(r.restAmt)}</td>
+            <td style="text-align:right; color:#16A34A;">${zero(r.paidAmt)}</td>
+            <td style="text-align:right; color:${r.restAmt>0?"#F59E0B":"#6B7280"};">${zero(r.restAmt)}</td>
             <td>
-              <div style="background:#F2F3F1; border-radius:3px; height:9px; margin-bottom:3px;"><div style="width:${Math.round(r.orderAmt/mMax*100)}%; background:#E8590C; height:100%; border-radius:3px;"></div></div>
-              <div style="background:#F2F3F1; border-radius:3px; height:9px;"><div style="width:${Math.round(r.payAmt/mMax*100)}%; background:#2F855A; height:100%; border-radius:3px;"></div></div>
+              <div style="background:#F3F4F6; border-radius:3px; height:9px; margin-bottom:3px;"><div style="width:${Math.round(r.orderAmt/mMax*100)}%; background:#D4AF37; height:100%; border-radius:3px;"></div></div>
+              <div style="background:#F3F4F6; border-radius:3px; height:9px;"><div style="width:${Math.round(r.payAmt/mMax*100)}%; background:#16A34A; height:100%; border-radius:3px;"></div></div>
             </td>
           </tr>`).join("")}
-        <tr style="background:#EEF1F3; font-weight:800;">
+        <tr style="background:#F3F4F6; font-weight:800;">
           <td>期 合計</td>
           <td data-dash-fy="${dashFY}" style="text-align:right; ${cur.orderCount?"cursor:pointer; text-decoration:underline; text-decoration-style:dotted;":""}">${cur.orderCount}</td>
           <td style="text-align:right;">${zero(cur.orderAmt)}</td>
@@ -2826,9 +3267,9 @@ function renderDashboard(){
         </tr>
       </table>
       </div>
-      <div style="font-size:11.5px; color:#6B7A87; line-height:1.7;">
-        <span style="display:inline-block; width:10px; height:9px; background:#E8590C; border-radius:2px;"></span> 受注額(受注日ベース)
-        <span style="display:inline-block; width:10px; height:9px; background:#2F855A; border-radius:2px;"></span> 入金予定額(入金予定日ベース)<br>
+      <div style="font-size:11.5px; color:#6B7280; line-height:1.7;">
+        <span style="display:inline-block; width:10px; height:9px; background:#D4AF37; border-radius:2px;"></span> 受注額(受注日ベース)
+        <span style="display:inline-block; width:10px; height:9px; background:#16A34A; border-radius:2px;"></span> 入金予定額(入金予定日ベース)<br>
         完了(アーカイブ)済の案件も金額集計に含みます。決算期は6月末締め(7月〜翌6月)で集計しています。
         受注日または入金予定日が未入力の案件は「日付未指定」行にまとめています(期の合計・期別サマリーには含まれません)。案件管理から日付を入力すると各月に反映されます。
       </div>
@@ -2837,21 +3278,21 @@ function renderDashboard(){
       const rows=fyList.map(f=>fyStats(f));
       const mx=Math.max(1,...rows.map(r=>Math.max(r.orderAmt,r.payAmt)));
       return `
-      <div class="card">
+      <div class="card dashboard-panel-card">
         <h3 style="font-weight:800; margin-bottom:10px;">期別サマリー(全期)</h3>
         <div style="overflow-x:auto;">
         <table class="grid" style="margin-bottom:0;">
           <tr><th>期</th><th style="text-align:right;">受注件数</th><th style="text-align:right;">受注額</th><th style="text-align:right;">入金予定</th><th style="text-align:right;">入金済</th><th style="width:160px;">受注/入金予定</th></tr>
           ${rows.map(r=>`
-            <tr style="background:${r.fy===dashFY?"#FFF0E6":""};">
+            <tr style="background:${r.fy===dashFY?"rgba(212,175,55,.12)":""};">
               <td style="white-space:nowrap; font-weight:${r.fy===dashFY?800:600};">${fyLabel(r.fy)}${r.fy===currentFY()?"(今期)":""}</td>
-              <td data-dash-fy="${r.fy}" style="text-align:right; ${r.orderCount?"cursor:pointer; text-decoration:underline; text-decoration-style:dotted;":""}">${r.orderCount||`<span style="color:#C3C9CE;">―</span>`}</td>
+              <td data-dash-fy="${r.fy}" style="text-align:right; ${r.orderCount?"cursor:pointer; text-decoration:underline; text-decoration-style:dotted;":""}">${r.orderCount||`<span style="color:#D1D5DB;">―</span>`}</td>
               <td style="text-align:right; font-weight:700;">${zero(r.orderAmt)}</td>
               <td style="text-align:right;">${zero(r.payAmt)}</td>
-              <td style="text-align:right; color:#2F6A4F;">${zero(r.paidAmt)}</td>
+              <td style="text-align:right; color:#16A34A;">${zero(r.paidAmt)}</td>
               <td>
-                <div style="background:#F2F3F1; border-radius:3px; height:9px; margin-bottom:3px;"><div style="width:${Math.round(r.orderAmt/mx*100)}%; background:#E8590C; height:100%; border-radius:3px;"></div></div>
-                <div style="background:#F2F3F1; border-radius:3px; height:9px;"><div style="width:${Math.round(r.payAmt/mx*100)}%; background:#2F855A; height:100%; border-radius:3px;"></div></div>
+                <div style="background:#F3F4F6; border-radius:3px; height:9px; margin-bottom:3px;"><div style="width:${Math.round(r.orderAmt/mx*100)}%; background:#D4AF37; height:100%; border-radius:3px;"></div></div>
+                <div style="background:#F3F4F6; border-radius:3px; height:9px;"><div style="width:${Math.round(r.payAmt/mx*100)}%; background:#16A34A; height:100%; border-radius:3px;"></div></div>
               </td>
             </tr>`).join("")}
         </table>
@@ -2892,54 +3333,82 @@ function renderDashboard(){
   })();
   const lostReasonMax=Math.max(1,...lostReasonRows.map(r=>r.count));
   const pipelineCard=`
-    <div class="card">
+    <div class="card dashboard-panel-card">
       <h3 style="font-weight:800; margin-bottom:10px;">受注前パイプライン(成約率・失注分析)</h3>
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
-        ${kpi("成約率", winRate==null?"―":`${winRate}%`, `受注${wonCases.length}件/失注${lostCases.length}件`)}
-        ${kpi("商談中(見積提出済み)", `${pipelineCases.length}件`, fmtYen(sum(pipelineCases,c=>num(c.quoteAmount)))||"¥0")}
-        ${kpi("失注額(見積ベース累計)", fmtYen(sum(lostCases,c=>num(c.quoteAmount)))||"¥0", `${lostCases.length}件`)}
+        ${kpi("成約率", winRate==null?"―":`${winRate}%`, `受注${wonCases.length}件/失注${lostCases.length}件`, "success")}
+        ${kpi("商談中(見積提出済み)", `${pipelineCases.length}件`, fmtYen(sum(pipelineCases,c=>num(c.quoteAmount)))||"¥0", "action")}
+        ${kpi("失注額(見積ベース累計)", fmtYen(sum(lostCases,c=>num(c.quoteAmount)))||"¥0", `${lostCases.length}件`, "danger")}
       </div>
       ${lostReasonRows.length? `
       <div style="font-size:12px; font-weight:700; margin-bottom:6px;">失注理由の内訳</div>
       ${lostReasonRows.map(r=>`
         <div data-dash-lost="${esc(r.label)}" style="display:flex; align-items:center; gap:10px; margin-bottom:6px; cursor:pointer;">
           <span style="width:110px; font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px;">${esc(r.label)}</span>
-          <div style="flex:1; background:#F2F3F1; border-radius:4px; height:16px;"><div style="width:${Math.round(r.count/lostReasonMax*100)}%; min-width:3px; background:#B54747; height:100%; border-radius:4px;"></div></div>
+          <div style="flex:1; background:#F3F4F6; border-radius:4px; height:16px;"><div style="width:${Math.round(r.count/lostReasonMax*100)}%; min-width:3px; background:#EF4444; height:100%; border-radius:4px;"></div></div>
           <span style="width:150px; font-size:12px; text-align:right; white-space:nowrap;">${r.count}件${r.amount?`｜${fmtYen(r.amount)}`:""}</span>
-        </div>`).join("")}` : `<div style="color:#6B7A87; font-size:12px;">失注の記録はまだありません(案件管理の「失注」ボタンで記録すると、ここに成約率と理由の内訳が表示されます)。</div>`}
+        </div>`).join("")}` : `<div style="color:#6B7280; font-size:12px;">失注の記録はまだありません(案件管理の「失注」ボタンで記録すると、ここに成約率と理由の内訳が表示されます)。</div>`}
     </div>`;
 
   $("dashboardPanel").innerHTML=`
-    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
-      ${kpi("進行中案件", `${active.length}件`, "")}
-      ${kpi("見積合計(進行中)", fmtYen(quoteTotal)||"¥0", "")}
-      ${kpi("受注額合計(進行中)", fmtYen(orderTotal)||"¥0", "")}
-      ${kpi("未請求", fmtYen(unbilled)||"¥0", "受注済・請求前")}
-      ${kpi("請求済(入金待ち)", fmtYen(billed)||"¥0", "")}
-      ${kpi("入金済(累計)", fmtYen(paid)||"¥0", "完了含む全案件")}
-      ${kpi("今月実施", `${monthExec.length}件`, thisMonth)}
+    <div class="dashboard-overview-head">
+      <div><div class="dashboard-kicker">DASHBOARD OVERVIEW</div><h3>今週のサマリー</h3></div>
+      <p>${dashboardDate}</p>
+    </div>
+    <div class="dashboard-primary-grid">
+      ${kpi("進行中案件", `${active.length}件`, "", "accent")}
+      ${kpi("受注額合計(進行中)", fmtYen(orderTotal)||"¥0", "", "success")}
+      ${kpi("未請求", fmtYen(unbilled)||"¥0", "受注済・請求前", "warning")}
+      ${kpi("入金済(累計)", fmtYen(paid)||"¥0", "完了含む全案件", "success")}
+    </div>
+    <div class="dashboard-secondary-grid">
+      ${kpi("見積合計(進行中)", fmtYen(quoteTotal)||"¥0", "", "action")}
+      ${kpi("請求済(入金待ち)", fmtYen(billed)||"¥0", "", "warning")}
+      ${kpi("今月実施", `${monthExec.length}件`, thisMonth, "action")}
+    </div>
+    <div class="dashboard-ops-grid">
+      <div class="card dashboard-ops-card">
+        <h3>最新の案件 <span>RECENT CASES</span></h3>
+        ${recentCases.length? recentCases.map(c=>`
+          <div class="dashboard-list-row">
+            <span class="dashboard-list-accent" style="background:${catColor(c.category)};"></span>
+            <div class="dashboard-list-copy"><div class="dashboard-list-title">${esc(c.name)}</div><div class="dashboard-list-meta">${esc(c.customerName||"顧客未設定")}｜${esc(caseOwnerName(c)||"担当未設定")}</div></div>
+            <span class="dashboard-list-value">${esc(c.status||"未設定")}</span>
+          </div>`).join("") : '<div class="dashboard-empty">進行中の案件はありません。</div>'}
+      </div>
+      <div class="card dashboard-ops-card">
+        <h3>進捗アラート <span>ATTENTION</span></h3>
+        ${attention.length? attention.slice(0,5).map(x=>`
+          <div class="dashboard-list-row">
+            <span class="dashboard-list-accent" style="background:${x.tone==="danger"?"#EF4444":"#F59E0B"};"></span>
+            <div class="dashboard-list-copy"><div class="dashboard-list-title">${esc(x.title)}</div><div class="dashboard-list-meta">${esc(x.meta)}</div></div>
+            <span class="dashboard-list-value">${esc(x.value)}</span>
+          </div>`).join("") : '<div class="dashboard-empty">現在、期限超過や直近の注意事項はありません。</div>'}
+      </div>
     </div>
     ${fyPanel}
     ${pipelineCard}
-    ${barTable(`分類別 受注額(${fyLabel(dashFY)})`, byCat, `完了済の案件も含みます。件数の合計は上の「期別サマリー」の受注件数(${cur.orderCount}件)と一致します。`)}
-    ${barTable(`営業担当別 受注額(${fyLabel(dashFY)})`, bySalesOwner, `完了済の案件も含みます。件数の合計は上の「期別サマリー」の受注件数(${cur.orderCount}件)と一致します。`)}
-    ${barTable(`フライト担当別 売上(${fyLabel(dashFY)})`, byFlightOwner, "売上は案件ごとのフライト担当の比率に応じて按分しています(比率未入力の案件は担当人数で均等割り)。件数は担当として関わっている案件数のため、合計は受注件数より多くなることがあります。")}
-    <div class="card">
+    <div class="dashboard-analysis-grid">
+      ${barTable(`分類別 受注額(${fyLabel(dashFY)})`, byCat, `完了済の案件も含みます。件数の合計は上の「期別サマリー」の受注件数(${cur.orderCount}件)と一致します。`)}
+      ${barTable(`営業担当別 受注額(${fyLabel(dashFY)})`, bySalesOwner, `完了済の案件も含みます。件数の合計は上の「期別サマリー」の受注件数(${cur.orderCount}件)と一致します。`)}
+      ${barTable(`フライト担当別 売上(${fyLabel(dashFY)})`, byFlightOwner, "売上は案件ごとのフライト担当の比率に応じて按分しています(比率未入力の案件は担当人数で均等割り)。件数は担当として関わっている案件数のため、合計は受注件数より多くなることがあります。")}
+    </div>
+    <div class="card dashboard-panel-card">
       <h3 style="font-weight:800; margin-bottom:10px;">顧客別売上ランキング TOP10(受注ベース・完了含む)</h3>
-      ${custRanking.length===0? `<div style="color:#6B7A87; font-size:12px;">対象データがありません。</div>` : custRanking.map((r,i)=>`
+      ${custRanking.length===0? `<div style="color:#6B7280; font-size:12px;">対象データがありません。</div>` : custRanking.map((r,i)=>`
         <div data-dash-cust="${esc(r.key)}" data-dash-cust-label="${esc(r.label)}" style="display:flex; align-items:center; gap:10px; margin-bottom:7px; cursor:pointer;">
-          <span style="width:20px; text-align:right; font-size:11px; color:#8A959E; font-weight:700;">${i+1}</span>
+          <span style="width:20px; text-align:right; font-size:11px; color:#6B7280; font-weight:700;">${i+1}</span>
           <span style="width:150px; font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px;">${esc(r.label)}</span>
-          <div style="flex:1; background:#F2F3F1; border-radius:4px; height:20px;">
-            <div style="width:${Math.round(r.amount/custRankMax*100)}%; min-width:3px; background:#2B6CB0; height:100%; border-radius:4px;"></div>
+          <div style="flex:1; background:#F3F4F6; border-radius:4px; height:20px;">
+            <div style="width:${Math.round(r.amount/custRankMax*100)}%; min-width:3px; background:#2563EB; height:100%; border-radius:4px;"></div>
           </div>
           <span style="width:150px; font-size:12px; text-align:right; white-space:nowrap;">${r.count}件｜${fmtYen(r.amount)}</span>
         </div>`).join("")}
-      <div style="font-size:11px; color:#6B7A87; margin-top:4px;">顧客名をクリックすると案件管理でその顧客の案件を表示します。未紐付けの案件は顧客名の表記でまとめています(顧客タブの名寄せで精度が上がります)。</div>
+      <div style="font-size:11px; color:#6B7280; margin-top:4px;">顧客名をクリックすると案件管理でその顧客の案件を表示します。未紐付けの案件は顧客名の表記でまとめています(顧客タブの名寄せで精度が上がります)。</div>
     </div>
-    <div class="card">
+    <div class="card dashboard-panel-card">
       <h3 style="font-weight:800; margin-bottom:10px;">今月の実施案件(${thisMonth})</h3>
-      ${monthExec.length===0? `<div style="color:#6B7A87; font-size:12px;">今月の実施予定はありません。</div>` : `
+      ${monthExec.length===0? `<div style="color:#6B7280; font-size:12px;">今月の実施予定はありません。</div>` : `
       <table class="grid" style="margin-bottom:0;">
         <tr><th>実施日</th><th>案件名</th><th>顧客</th><th>担当</th><th>ステータス</th><th>受注額</th></tr>
         ${monthExec.sort((a,b)=>(a.execDate||"").localeCompare(b.execDate||"")).map(c=>`
@@ -3016,7 +3485,7 @@ async function openComments(caseId){
 async function renderComments(){
   const {data}=await sb.from("comments").select("*").eq("case_id",commentCaseId).order("id",{ascending:true});
   $("commentList").innerHTML=(data||[]).length===0
-    ? `<div style="color:#6B7A87; font-size:12.5px;">まだコメントがありません。</div>`
+    ? `<div style="color:#6B7280; font-size:12.5px;">まだコメントがありません。</div>`
     : data.map(cm=>`
       <div class="comment-item">
         <div class="comment-meta">${esc(cm.author)}・${fmtDT(cm.created_at)}</div>
@@ -3047,7 +3516,7 @@ async function postAnnouncement(){
 }
 function renderFeed(){
   $("annList").innerHTML = announcements.length===0
-    ? `<div class="card" style="text-align:center; color:#3D4F5E; border-style:dashed;">連絡事項はまだありません。</div>`
+    ? `<div class="card" style="text-align:center; color:#374151; border-style:dashed;">連絡事項はまだありません。</div>`
     : announcements.map(a=>{
       const reads=a.reads||[];
       const unreadByMe=!reads.includes(me);
@@ -3055,7 +3524,7 @@ function renderFeed(){
       <div class="card feed-item">
         <div class="feed-meta">
           ${unreadByMe? '<span class="unread-dot"></span>':""}
-          <strong style="color:#17242F;">${esc(a.author)}</strong>
+          <strong style="color:#0D1B2A;">${esc(a.author)}</strong>
           <span>${fmtDT(a.created_at)}</span>
           <span class="read-chip">既読 ${reads.length}/${master.members.length}:${esc(reads.join("、")||"なし")}</span>
         </div>
@@ -3088,13 +3557,13 @@ async function refreshFeedBadge(){
 async function renderAudit(){
   const {data}=await sb.from("audit_log").select("*").order("id",{ascending:false}).limit(50);
   $("auditList").innerHTML=(data||[]).length===0
-    ? `<div style="color:#6B7A87; font-size:12.5px;">履歴はまだありません。</div>`
+    ? `<div style="color:#6B7280; font-size:12.5px;">履歴はまだありません。</div>`
     : data.map(r=>`
       <div class="audit-row">
         <span class="audit-time">${fmtDT(r.created_at)}</span>
         <strong>${esc(r.author)}</strong>
-        <span class="chip" style="background:#EEF1F3; border:1px solid #DCE0E3;">${esc(r.action)}</span>
-        <span style="color:#3D4F5E;">${esc(r.detail||"")}</span>
+        <span class="chip" style="background:#F3F4F6; border:1px solid #D1D5DB;">${esc(r.action)}</span>
+        <span style="color:#374151;">${esc(r.detail||"")}</span>
       </div>`).join("");
 }
 
@@ -3252,10 +3721,10 @@ async function renderNippoList(){
   if(f&&f!=="全員") q=q.eq("author",f);
   const {data}=await q;
   $("nippoList").innerHTML=(data||[]).length===0
-    ? `<div class="card" style="text-align:center; color:#3D4F5E; border-style:dashed;">直近10日の日報はまだありません。「Teamsから取込」を押してください。</div>`
+    ? `<div class="card" style="text-align:center; color:#374151; border-style:dashed;">直近10日の日報はまだありません。「Teamsから取込」を押してください。</div>`
     : data.map(n=>`
       <div class="card">
-        <div class="feed-meta"><strong style="color:#17242F;">${esc(n.author)}</strong><span>作業日:${esc(n.report_date)}</span>${n.teams_msg_id? '<span class="read-chip">Teams取込</span>':""}</div>
+        <div class="feed-meta"><strong style="color:#0D1B2A;">${esc(n.author)}</strong><span>作業日:${esc(n.report_date)}</span>${n.teams_msg_id? '<span class="read-chip">Teams取込</span>':""}</div>
         <div style="margin-top:6px; white-space:pre-wrap; font-size:13.5px;">${esc(n.content)}</div>
         <div style="margin-top:8px;"><button class="btn btn-secondary btn-small" data-nippo-reflect="${esc(n.author)}">会議資料に反映</button></div>
       </div>`).join("");
@@ -3283,7 +3752,7 @@ async function loadChannelsForTeam(){
   $("selChannel").innerHTML=(j.value||[]).map(c=>`<option value="${esc(c.id)}" ${c.id===settings.teamsChannelId?"selected":""}>${esc(c.displayName)}</option>`).join("");
 }
 /* ---------- 会議モード ---------- */
-function busyColor(level){ const i=master.busyLevels.indexOf(level); return i>=0? BUSY_PALETTE[i%BUSY_PALETTE.length] : "#B0B7BD"; }
+function busyColor(level){ const i=master.busyLevels.indexOf(level); return i>=0? BUSY_PALETTE[i%BUSY_PALETTE.length] : "#6B7280"; }
 function mandaySum(m){ return cases.filter(c=>isOpenCase(c)&&caseOwnerName(c)===m).reduce((a,c)=>a+(parseFloat(c.manday)||0),0); }
 let prevWeekDecisions="";
 async function loadPrevWeekDecisions(){
@@ -3309,7 +3778,7 @@ async function prepareMeeting(){
     renderMeeting();
     $("meetingPrepMsg").innerHTML=`<b>会議準備 完了:</b> ${msgs.map(esc).join("　/　")}`;
   }catch(e){
-    $("meetingPrepMsg").innerHTML=`<span style="color:#B54747;">会議準備エラー:${esc(e.message||e)}</span>`;
+    $("meetingPrepMsg").innerHTML=`<span style="color:#EF4444;">会議準備エラー:${esc(e.message||e)}</span>`;
   }
   btn.disabled=false; btn.textContent="会議準備(MF同期+日報反映)";
 }
@@ -3322,21 +3791,21 @@ async function showMeetingArchive(){
     .map(r=>({key:r.week_key, note:(r.data&&r.data.meetingNote)||"", dec:(r.data&&r.data.decisions)||""}))
     .filter(r=>r.note||r.dec);
   $("meetingArchive").innerHTML = rows.length===0
-    ? `<div style="color:#6B7A87; font-size:12px;">過去の会議メモ・決定事項はまだありません。</div>`
+    ? `<div style="color:#6B7280; font-size:12px;">過去の会議メモ・決定事項はまだありません。</div>`
     : `<div style="overflow-x:auto;"><table class="grid" style="margin-bottom:0;">
         <tr><th style="width:110px;">週</th><th>決定事項</th><th>会議メモ</th></tr>
         ${rows.map(r=>`<tr>
           <td style="white-space:nowrap; font-weight:700;">${esc(weekKeyLabel(r.key))}</td>
           <td style="white-space:pre-wrap;">${esc(r.dec||"―")}</td>
-          <td style="white-space:pre-wrap; color:#3D4F5E;">${esc(r.note||"―")}</td>
+          <td style="white-space:pre-wrap; color:#374151;">${esc(r.note||"―")}</td>
         </tr>`).join("")}
       </table></div>`;
   btn.disabled=false; btn.textContent="再読込";
 }
 function renderMeeting(){
   $("prevDecisionsCard").innerHTML = prevWeekDecisions? `
-    <div class="card" style="border-left:4px solid #B7791F;">
-      <div style="font-size:12px; font-weight:800; color:#7A5B00; margin-bottom:4px;">前週の決定事項(フォロー確認)</div>
+    <div class="card" style="border-left:4px solid #F59E0B;">
+      <div style="font-size:12px; font-weight:800; color:#F59E0B; margin-bottom:4px;">前週の決定事項(フォロー確認)</div>
       <div style="white-space:pre-wrap; font-size:13px;">${esc(prevWeekDecisions)}</div>
     </div>` : "";
   const ns=week.nippoSummary||{};
@@ -3364,7 +3833,7 @@ function renderMeeting(){
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
         <span style="width:10px; height:10px; border-radius:50%; background:${busyColor(week.busy[m])}; box-shadow:0 0 0 3px ${busyColor(week.busy[m])}22;"></span>
         <span style="font-weight:900; font-size:15px;">${esc(m)}</span>
-        <span style="font-size:12.5px; color:${over?"#C53030":"#3D4F5E"}; font-weight:${over?800:400};">合計 ${total.toFixed(1)} 人日${over?"(超過)":""}</span>
+        <span style="font-size:12.5px; color:${over?"#EF4444":"#374151"}; font-weight:${over?800:400};">合計 ${total.toFixed(1)} 人日${over?"(超過)":""}</span>
         <select data-busy="${esc(m)}" style="margin-left:auto;">
           <option value="">繁忙度を選択</option>
           ${master.busyLevels.map(b=>`<option value="${esc(b)}" ${week.busy[m]===b?"selected":""}>${esc(b)}</option>`).join("")}
@@ -3372,29 +3841,29 @@ function renderMeeting(){
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
         <div><label style="font-size:12px; font-weight:700;">手伝ってほしいこと</label>
-          <textarea rows="2" data-hneed="${esc(m)}" style="margin-top:4px; background:${week.helpNeed[m]?"#FDF1EC":"#fff"};">${esc(week.helpNeed[m]||"")}</textarea></div>
+          <textarea rows="2" data-hneed="${esc(m)}" style="margin-top:4px; background:${week.helpNeed[m]?"rgba(239,68,68,.08)":"#FFFFFF"};">${esc(week.helpNeed[m]||"")}</textarea></div>
         <div><label style="font-size:12px; font-weight:700;">手伝えること</label>
           <textarea rows="2" data-hgive="${esc(m)}" style="margin-top:4px;">${esc(week.helpGive[m]||"")}</textarea></div>
       </div>
       ${sch.length? `
-      <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
-        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">今週の予定(週間ボードのカレンダーより)</div>
+      <div style="margin-top:10px; border-top:1px solid #D1D5DB; padding-top:8px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#0D1B2A;">今週の予定(週間ボードのカレンダーより)</div>
         <div style="display:grid; gap:3px;">
-          ${sch.map(s=>`<div style="font-size:12.5px; display:flex; gap:8px; align-items:flex-start;"><span style="width:52px; flex-shrink:0; font-weight:700; color:${s.isToday?"#B34608":"#6B7A87"};">${esc(s.label)}</span><span style="white-space:pre-wrap;">${esc(s.text)}</span></div>`).join("")}
+          ${sch.map(s=>`<div style="font-size:12.5px; display:flex; gap:8px; align-items:flex-start;"><span style="width:52px; flex-shrink:0; font-weight:700; color:${s.isToday?"#F59E0B":"#6B7280"};">${esc(s.label)}</span><span style="white-space:pre-wrap;">${esc(s.text)}</span></div>`).join("")}
         </div>
       </div>`:""}
-      <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
-        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">TODO(未完了${myTodos.length}件)</div>
+      <div style="margin-top:10px; border-top:1px solid #D1D5DB; padding-top:8px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#0D1B2A;">TODO(未完了${myTodos.length}件)</div>
         ${myTodos.map(t=>{
           const d=todoDueInfo(t);
-          const col=!d? "#8A959E" : d.level==="over"? "#9B2C2C" : d.level==="today"? "#B34608" : d.level==="soon"? "#7A5B00" : "#6B7A87";
+          const col=!d? "#6B7280" : d.level==="over"? "#EF4444" : d.level==="today"? "#F59E0B" : d.level==="soon"? "#F59E0B" : "#6B7280";
           const cn=todoCaseName(t);
           return `
           <div style="display:flex; align-items:flex-start; gap:6px; margin-bottom:4px;">
             <input type="checkbox" data-mt-done="${t.id}" style="margin-top:3px;">
             <div style="flex:1; min-width:0; font-size:12.5px;">${esc(t.text)}
               <span style="color:${col}; font-size:11px; font-weight:${d&&(d.level==="over"||d.level==="today")?800:400};">${t.due_date?`　期限 ${esc(t.due_date)}${d?`(${d.label})`:""}`:"　期限なし"}</span>
-              ${cn?`<span style="color:#6B7A87; font-size:11px;">　案件:${esc(cn)}</span>`:""}
+              ${cn?`<span style="color:#6B7280; font-size:11px;">　案件:${esc(cn)}</span>`:""}
             </div>
             <button class="btn btn-small btn-secondary" data-mt-edit="${t.id}" style="padding:0 6px; font-size:10.5px;">編集</button>
           </div>`;
@@ -3405,33 +3874,33 @@ function renderMeeting(){
         </div>
       </div>
       ${casePlans.length? `
-      <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
-        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">案件の今週の予定</div>
+      <div style="margin-top:10px; border-top:1px solid #D1D5DB; padding-top:8px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#0D1B2A;">案件の今週の予定</div>
         ${casePlans.map(p=>`<div style="font-size:12.5px; margin-bottom:4px; white-space:pre-wrap;">・<b>${esc(p.name)}</b>｜${esc(p.customerName)}｜${esc(p.text)}</div>`).join("")}
       </div>`:""}
       ${items.length? `
-      <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
-        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#17242F;">日報より:先週の実施内容(自動集計・編集可)</div>
+      <div style="margin-top:10px; border-top:1px solid #D1D5DB; padding-top:8px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:6px; color:#0D1B2A;">日報より:先週の実施内容(自動集計・編集可)</div>
         ${items.map((it,idx)=>`
-          <div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px dashed #EEE;">
+          <div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px dashed #D1D5DB;">
             <div style="display:flex; align-items:center; gap:8px;">
               <strong style="font-size:12px;">${esc(it.date)}</strong>
               <button class="btn btn-small btn-secondary btn-danger" style="margin-left:auto;" data-ns-del="${esc(m)}|${idx}">行ごと削除</button>
             </div>
             <div style="display:flex; align-items:center; gap:6px; margin-top:3px;">
-              <label style="font-size:11px; color:#6B7A87;">業務内容</label>
+              <label style="font-size:11px; color:#6B7280;">業務内容</label>
               ${it.work?`<button class="btn btn-small btn-secondary btn-danger" style="padding:0 6px; font-size:10.5px;" data-ns-workdel="${esc(m)}|${idx}">この項目を削除</button>`:""}
             </div>
             <textarea rows="1" data-ns-work="${esc(m)}|${idx}" style="margin-top:2px; font-size:12.5px;">${esc(it.work||"")}</textarea>
             <div style="display:flex; align-items:center; gap:6px; margin-top:3px;">
-              <label style="font-size:11px; color:#6B7A87;">相談・報告事項</label>
+              <label style="font-size:11px; color:#6B7280;">相談・報告事項</label>
               ${it.issue?`<button class="btn btn-small btn-secondary btn-danger" style="padding:0 6px; font-size:10.5px;" data-ns-issuedel="${esc(m)}|${idx}">この項目を削除</button>`:""}
             </div>
-            <textarea rows="2" data-ns-issue="${esc(m)}|${idx}" style="margin-top:2px; font-size:12.5px; ${it.issue?"background:#FFF8F5;":""}">${esc(it.issue||"")}</textarea>
+            <textarea rows="2" data-ns-issue="${esc(m)}|${idx}" style="margin-top:2px; font-size:12.5px; ${it.issue?"background:rgba(239,68,68,.08);":""}">${esc(it.issue||"")}</textarea>
           </div>`).join("")}
         <button class="btn btn-small btn-secondary" data-ns-add="${esc(m)}">＋ 行を追加</button>
       </div>`:`
-      <div style="margin-top:10px; border-top:1px solid #EEE; padding-top:8px;">
+      <div style="margin-top:10px; border-top:1px solid #D1D5DB; padding-top:8px;">
         <button class="btn btn-small btn-secondary" data-ns-add="${esc(m)}">＋ 日報より:先週の実施内容を手入力で追加</button>
       </div>`}
     </div>`;
@@ -3507,8 +3976,8 @@ function renderReport(){
     if(sd) return sd;
     return (b.updatedAt||0)-(a.updatedAt||0);
   });
-  const th=`border:1px solid #BBB; background:#EEF1F3; padding:4px 6px; font-size:10.5px;`;
-  const td=`border:1px solid #CCC; padding:4px 6px;`;
+  const th=`border:1px solid #D1D5DB; background:#F3F4F6; padding:4px 6px; font-size:10.5px;`;
+  const td=`border:1px solid #D1D5DB; padding:4px 6px;`;
   /* 経営数値サマリー(ダッシュボードと同じ計算式) */
   const num=(v)=>parseFloat(v)||0;
   const sum=(arr,f)=>arr.reduce((a,c)=>a+f(c),0);
@@ -3523,7 +3992,7 @@ function renderReport(){
   const unbilledAll=sum(cases.filter(c=>isOrderedCase(c)&&c.billingStatus==="請求済"),c=>num(c.orderAmount));
   const y=(v)=>fmtYen(v)||"¥0";
   const bizSummary=`
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">2. 経営数値サマリー</h2>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #0D1B2A; padding-left:8px; margin:14px 0 6px;">2. 経営数値サマリー</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
       <tr>
         <th style="${th}">今月の受注</th><th style="${th}">今月の入金予定</th><th style="${th}">うち入金済</th>
@@ -3532,28 +4001,28 @@ function renderReport(){
       <tr>
         <td style="${td} text-align:right; font-weight:700;">${y(sum(moOrdered,c=>num(c.orderAmount)))}<span style="font-weight:400;">(${moOrdered.length}件)</span></td>
         <td style="${td} text-align:right;">${y(moPayAmt)}</td>
-        <td style="${td} text-align:right; color:#2F6A4F;">${y(moPaidAmt)}</td>
-        <td style="${td} text-align:right; color:${unbilledAll>0?"#9B2C2C":"#111"};">${y(unbilledAll)}</td>
+        <td style="${td} text-align:right; color:#16A34A;">${y(moPaidAmt)}</td>
+        <td style="${td} text-align:right; color:${unbilledAll>0?"#F59E0B":"#111827"};">${y(unbilledAll)}</td>
         <td style="${td} text-align:right; font-weight:700;">${y(sum(fyOrdered,c=>num(c.orderAmount)))}<span style="font-weight:400;">(${fyOrdered.length}件)</span></td>
-        <td style="${td} text-align:right; color:#2F6A4F;">${y(fyPaidAmt)}</td>
+        <td style="${td} text-align:right; color:#16A34A;">${y(fyPaidAmt)}</td>
       </tr>
     </table>`;
   $("printArea").innerHTML=`
-  <div style="background:#fff; border:1px solid #DCE0E3; border-radius:8px; padding:22px 26px; font-size:12px; line-height:1.55; color:#111;">
-    <div style="border-bottom:3px solid #17242F; padding-bottom:8px; margin-bottom:10px;">
-      <div style="font-size:10px; letter-spacing:2px; color:#E8590C; font-weight:800;">D-WOLF WEEKLY REPORT</div>
+  <div style="background:#FFFFFF; border:1px solid #D1D5DB; border-radius:8px; padding:22px 26px; font-size:12px; line-height:1.55; color:#111827;">
+    <div style="border-bottom:3px solid #0D1B2A; padding-bottom:8px; margin-bottom:10px;">
+      <div style="font-size:10px; letter-spacing:2px; color:#D4AF37; font-weight:800;">D-WOLF WEEKLY REPORT</div>
       <div style="display:flex; justify-content:space-between; align-items:baseline;">
         <h1 style="font-size:19px; font-weight:900; margin:0;">D-WOLF 週次業務報告</h1>
         <span>${fmtJP(monday)}(月)〜${fmtJP(dates[4])}(金)</span>
       </div>
       <div style="font-size:11px; margin-top:3px;">宛先:代表取締役 宮﨑隆司 様　作成:${esc(master.manager)}</div>
     </div>
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">1. 稼働サマリー</h2>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #0D1B2A; padding-left:8px; margin:14px 0 6px;">1. 稼働サマリー</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
       <tr><th style="${th}">氏名</th><th style="${th}">合計人日</th><th style="${th}">案件数</th><th style="${th}">繁忙度</th><th style="${th}">応援が必要なこと</th></tr>
       ${master.members.map(m=>{
         const isMax=week.busy[m]&&master.busyLevels.indexOf(week.busy[m])===master.busyLevels.length-1;
-        return `<tr style="background:${isMax?"#FDECEC":""};">
+        return `<tr style="background:${isMax?"rgba(239,68,68,.08)":""};">
           <td style="${td}">${esc(m)}</td>
           <td style="${td} text-align:center;">${mandaySum(m).toFixed(1)}</td>
           <td style="${td} text-align:center;">${cases.filter(c=>isOpenCase(c)&&caseOwnerName(c)===m).length}</td>
@@ -3562,30 +4031,30 @@ function renderReport(){
       }).join("")}
     </table>
     ${bizSummary}
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">3. 週間スケジュール</h2>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #0D1B2A; padding-left:8px; margin:14px 0 6px;">3. 週間スケジュール</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px; font-size:10.5px;">
       <tr><th style="${th}">氏名</th>${DAYS.map((d,i)=>`<th style="${th}">${d} ${fmtShort(dates[i])}</th>`).join("")}</tr>
       ${boardRows().map(m=>`<tr><td style="${td} font-weight:700;">${esc(m)}</td>${DAYS.map((_,i)=>`<td style="${td} white-space:pre-wrap;">${esc((week.schedule[m]||[])[i]||"")}</td>`).join("")}</tr>`).join("")}
     </table>
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">4. 日報まとめ(先週の業務内容・報告相談事項)</h2>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #0D1B2A; padding-left:8px; margin:14px 0 6px;">4. 日報まとめ(先週の業務内容・報告相談事項)</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
       <tr><th style="${th}">氏名</th><th style="${th}">日付</th><th style="${th}">業務内容</th><th style="${th}">報告・相談事項</th></tr>
       ${(()=>{
         const ns=week.nippoSummary||{};
         const rows=master.members.flatMap(m=>(ns[m]||[]).map(it=>({m,...it})));
         if(rows.length===0) return `<tr><td colspan="4" style="${td}">(日報の反映なし。日報タブで「会議資料に反映」を押してください)</td></tr>`;
-        return rows.map(r=>`<tr><td style="${td}">${esc(r.m)}</td><td style="${td}">${esc(r.date)}</td><td style="${td}">${esc(r.work||"")}</td><td style="${td} ${r.issue?"color:#9B2C2C;":""}">${esc(r.issue||"")}</td></tr>`).join("");
+        return rows.map(r=>`<tr><td style="${td}">${esc(r.m)}</td><td style="${td}">${esc(r.date)}</td><td style="${td}">${esc(r.work||"")}</td><td style="${td} ${r.issue?"color:#EF4444;":""}">${esc(r.issue||"")}</td></tr>`).join("");
       })()}
     </table>
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">5. 主な案件(今週動きがあった案件・進捗が進んでいる案件から順に表示)</h2>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #0D1B2A; padding-left:8px; margin:14px 0 6px;">5. 主な案件(今週動きがあった案件・進捗が進んでいる案件から順に表示)</h2>
     <table style="border-collapse:collapse; width:100%; margin-bottom:10px;">
       <tr><th style="${th}">担当</th><th style="${th}">分類</th><th style="${th}">案件名</th><th style="${th}">ステータス</th><th style="${th}">人日</th><th style="${th}">今週の予定</th></tr>
       ${activeCases.length===0? `<tr><td colspan="6" style="${td}">(今週の案件登録なし)</td></tr>` : activeCases.map(c=>`
         <tr><td style="${td}">${esc(caseOwnerName(c))}</td><td style="${td}">${esc(c.category)}</td><td style="${td}">${esc(c.name)}</td>
         <td style="${td} text-align:center;">${esc(c.status)}</td><td style="${td} text-align:center;">${c.manday||0}</td><td style="${td}">${esc((c.weeklyPlans||[]).find(p=>p.weekKey===currentWeekKey())?.text||"")}</td></tr>`).join("")}
     </table>
-    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #17242F; padding-left:8px; margin:14px 0 6px;">6. 決定事項</h2>
-    <div style="border:1px solid #CCC; border-radius:4px; padding:8px 10px; min-height:40px; white-space:pre-wrap;">${esc(week.decisions||"(記載なし)")}</div>
+    <h2 style="font-size:13px; font-weight:800; border-left:4px solid #0D1B2A; padding-left:8px; margin:14px 0 6px;">6. 決定事項</h2>
+    <div style="border:1px solid #D1D5DB; border-radius:4px; padding:8px 10px; min-height:40px; white-space:pre-wrap;">${esc(week.decisions||"(記載なし)")}</div>
   </div>`;
 }
 
@@ -3642,12 +4111,12 @@ function renderMaster(){
   const listRow=(label, items, addId, removePrefix, colorFn)=>`
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:4px;">${label}</h3>
-      <div style="font-size:11.5px; color:#6B7A87; margin-bottom:10px;">行をドラッグ&ドロップすると並び順を変更できます(▲▼ボタンでも移動可)。</div>
+      <div style="font-size:11.5px; color:#6B7280; margin-bottom:10px;">行をドラッグ&ドロップすると並び順を変更できます(▲▼ボタンでも移動可)。</div>
       <div style="display:grid; gap:6px; margin-bottom:10px;">
         ${items.map((v,i)=>`
           <div class="dnd-item" draggable="true" data-dnd-field="${removePrefix}" data-dnd-index="${i}">
             <span class="drag-handle" title="ドラッグして並び替え">⠿</span>
-            <span style="font-size:11px; color:#8A959E; min-width:16px;">${i+1}</span>
+            <span style="font-size:11px; color:#6B7280; min-width:16px;">${i+1}</span>
             ${colorFn? `<span style="width:10px; height:10px; border-radius:50%; background:${colorFn(i)};"></span>`:""}
             <span style="flex:1; font-weight:600;">${esc(v)}</span>
             <button class="btn btn-secondary btn-move" data-mv="${removePrefix}|${i}|-1" ${i===0?"disabled":""} title="上へ">▲</button>
@@ -3663,8 +4132,8 @@ function renderMaster(){
   $("masterPanel").innerHTML=`
     ${listRow("メンバー(案件の担当になる人・ログインする人)", master.members, "newMember", "members", null)}
     ${listRow("カレンダー共有アカウント(予定表の行のみ・案件の担当には出ません)", master.calendarOnly||[], "newCalAcct", "calendarOnly", null)}
-    <div class="card" style="border-left:4px solid #E8590C;">
-      <div style="font-size:12px; color:#3D4F5E; line-height:1.8;">
+    <div class="card" style="border-left:4px solid #D4AF37;">
+      <div style="font-size:12px; color:#374151; line-height:1.8;">
         <b>ログインアカウントについて</b><br>
         ここで追加できるのは<b>アプリ内の名前だけ</b>です。実際にログインできるようにするには、
         Supabaseの管理画面(Authentication → Users → Add user)でメールアドレスとパスワードを登録し、
@@ -3689,7 +4158,7 @@ function renderMaster(){
         <input type="text" id="custNote" placeholder="メモ">
         <button class="btn btn-primary" id="btnAddCustomer">追加</button>
       </div>
-      <div style="font-size:11.5px; color:#6B7A87; margin-top:6px;">案件登録時に選択式で使えます(表記ゆれ防止)。削除しても既存案件の顧客名は残ります。</div>
+      <div style="font-size:11.5px; color:#6B7280; margin-top:6px;">案件登録時に選択式で使えます(表記ゆれ防止)。削除しても既存案件の顧客名は残ります。</div>
     </div>
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:10px;">週の人日上限(超過警告のしきい値)</h3>
@@ -3697,7 +4166,7 @@ function renderMaster(){
     </div>
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:10px;">ログインパスワード</h3>
-      <div style="font-size:12.5px; color:#3D4F5E; line-height:1.8;">
+      <div style="font-size:12.5px; color:#374151; line-height:1.8;">
         パスワードは<b>一人ひとり別々</b>になり、Supabaseの管理画面で管理します。<br>
         変更・リセットは Authentication → Users → 対象ユーザー → <b>Reset password</b> から行ってください。
       </div>
@@ -3735,13 +4204,13 @@ function renderMaster(){
 async function renderCustomerList(){
   await loadCustomers();
   $("customerList").innerHTML = customers.length===0
-    ? `<div style="color:#6B7A87; font-size:12.5px;">まだ顧客が登録されていません。</div>`
+    ? `<div style="color:#6B7280; font-size:12.5px;">まだ顧客が登録されていません。</div>`
     : customers.map(c=>`
-      <div style="display:flex; align-items:center; gap:8px; border:1px solid #DCE0E3; border-radius:6px; padding:6px 10px; font-size:12.5px;">
+      <div style="display:flex; align-items:center; gap:8px; border:1px solid #D1D5DB; border-radius:6px; padding:6px 10px; font-size:12.5px;">
         <span style="font-weight:700; min-width:120px;">${esc(c.name)}</span>
-        <span style="color:#3D4F5E;">${esc(c.contact_person||"")}</span>
-        <span style="color:#3D4F5E;">${esc(c.phone||"")}</span>
-        <span style="color:#8A959E; flex:1;">${esc(c.note||"")}</span>
+        <span style="color:#374151;">${esc(c.contact_person||"")}</span>
+        <span style="color:#374151;">${esc(c.phone||"")}</span>
+        <span style="color:#6B7280; flex:1;">${esc(c.note||"")}</span>
         <button class="btn btn-small btn-secondary btn-danger" data-cust-del="${c.id}">削除</button>
       </div>`).join("");
   document.querySelectorAll("[data-cust-del]").forEach(b=>b.addEventListener("click",async ()=>{
@@ -3758,7 +4227,7 @@ function renderSettings(){
   $("settingsPanel").innerHTML=`
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:8px;">Teams 日報取込設定(Graph API)</h3>
-      <ol style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px; margin-bottom:10px;">
+      <ol style="padding-left:20px; line-height:1.9; color:#374151; font-size:12.5px; margin-bottom:10px;">
         <li>Entra ID(Azure AD)でアプリ登録し、テナントIDとクライアントIDを取得(手順書参照)</li>
         <li>下の2欄に貼り付け(自動保存)</li>
         <li>「サインインしてチーム/チャネルを選択」→ D-WOLFチーム → 日報チャネル → 保存</li>
@@ -3769,7 +4238,7 @@ function renderSettings(){
       </div>
       <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; align-items:center;">
         <button class="btn btn-secondary" id="btnTeamsConnect">サインインしてチーム/チャネルを選択</button>
-        <span style="font-size:12px; color:#2F6A4F;" id="teamsCfgState">${settings.teamsChannelId? `設定済み:${esc(settings.teamsTeamName||"")} / ${esc(settings.teamsChannelName||"")}` : "未設定"}</span>
+        <span style="font-size:12px; color:#16A34A;" id="teamsCfgState">${settings.teamsChannelId? `設定済み:${esc(settings.teamsTeamName||"")} / ${esc(settings.teamsChannelName||"")}` : "未設定"}</span>
       </div>
       <div id="teamsPickArea" style="display:none; margin-top:10px;">
         <div class="modal-cols">
@@ -3778,23 +4247,23 @@ function renderSettings(){
         </div>
         <button class="btn btn-primary" id="btnTeamsSavePick" style="margin-top:10px;">この設定で保存</button>
       </div>
-      <div style="font-size:11.5px; color:#6B7A87; margin-top:8px;">取込対象:本文が【D-WOLF工事日誌_氏名】形式の投稿。氏名がマスターのメンバー名と一致すると人別に紐付きます(スペース有無は無視)。</div>
-      <div style="font-size:11.5px; color:#6B7A87; margin-top:4px;">※上記のテナントID・クライアントIDは、週間ボードの「Outlookカレンダーから自動取込」ボタンでも共通利用します(各自のOutlook予定表から直接取込。初回のみ本人のMicrosoftアカウントでサインインが必要です)。</div>
+      <div style="font-size:11.5px; color:#6B7280; margin-top:8px;">取込対象:本文が【D-WOLF工事日誌_氏名】形式の投稿。氏名がマスターのメンバー名と一致すると人別に紐付きます(スペース有無は無視)。</div>
+      <div style="font-size:11.5px; color:#6B7280; margin-top:4px;">※上記のテナントID・クライアントIDは、週間ボードの「Outlookカレンダーから自動取込」ボタンでも共通利用します(各自のOutlook予定表から直接取込。初回のみ本人のMicrosoftアカウントでサインインが必要です)。</div>
     </div>
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:8px;">Googleカレンダー自動連携設定</h3>
-      <ol style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px; margin-bottom:10px;">
+      <ol style="padding-left:20px; line-height:1.9; color:#374151; font-size:12.5px; margin-bottom:10px;">
         <li>Google Cloud Console でプロジェクトを作成し「Google Calendar API」を有効化(手順書参照)</li>
         <li>「OAuth 2.0 クライアントID」(ウェブアプリケーション)を作成し、承認済みJavaScript生成元に
           <code>https://dwolf-weekly-app.vercel.app</code> を登録</li>
         <li>発行された クライアントID を下に貼り付け(自動保存)</li>
       </ol>
       <label style="font-size:12px; font-weight:700;">GoogleクライアントID<input type="text" id="googleClientId" class="w100" value="${esc(settings.googleClientId||"")}" placeholder="xxxxxxxxxx.apps.googleusercontent.com" style="margin-top:4px;"></label>
-      <div style="font-size:11.5px; color:#6B7A87; margin-top:8px;">週間ボードの「Googleカレンダーから自動取込」ボタンで使用します。各自がボタンを押した際、本人のGoogleアカウントでのサインインが必要です(他人の予定は取れません)。</div>
+      <div style="font-size:11.5px; color:#6B7280; margin-top:8px;">週間ボードの「Googleカレンダーから自動取込」ボタンで使用します。各自がボタンを押した際、本人のGoogleアカウントでのサインインが必要です(他人の予定は取れません)。</div>
     </div>
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:8px;">GoogleカレンダーICS URL(手動取込用・任意)</h3>
-      <ol style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px; margin-bottom:10px;">
+      <ol style="padding-left:20px; line-height:1.9; color:#374151; font-size:12.5px; margin-bottom:10px;">
         <li>PCのGoogleカレンダー → 設定 → マイカレンダー → 自分のカレンダー</li>
         <li>「カレンダーの統合」の「iCal形式の公開URL」をコピーして下に控える</li>
         <li>取込時はURLをブラウザで開いて .ics をダウンロード → 週間ボードの「ICSファイル取込」</li>
@@ -3805,11 +4274,11 @@ function renderSettings(){
             <input type="text" class="w100 ics-url" data-ics="${esc(m)}" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" value="${esc((settings.icsUrls||{})[m]||"")}" style="margin-top:4px;">
           </label>`).join("")}
       </div>
-      <div style="margin-top:10px; font-size:12px; color:#B54747;">注意:このURLはメンバー全員に見える前提で登録してください。</div>
+      <div style="margin-top:10px; font-size:12px; color:#EF4444;">注意:このURLはメンバー全員に見える前提で登録してください。</div>
     </div>
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:8px;">Money Forwardクラウド請求書 連携</h3>
-      <ol style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px; margin-bottom:10px;">
+      <ol style="padding-left:20px; line-height:1.9; color:#374151; font-size:12.5px; margin-bottom:10px;">
         <li>MFクラウド請求書にログイン → 歯車アイコン →「API連携β(開発者向け)」→ 新規作成</li>
         <li>Redirect URIに <code>https://dwolf-weekly-app.vercel.app/api/mf/callback</code>、Scopeに <code>mfc/invoice/data.read</code> を指定</li>
         <li>発行されたClient ID / Client SecretをVercelの環境変数(MF_CLIENT_ID / MF_CLIENT_SECRET)に登録(管理者作業。詳細は開発引き継ぎメモ参照)</li>
@@ -3818,14 +4287,14 @@ function renderSettings(){
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <button class="btn btn-secondary" id="btnMfConnect">連携する</button>
         <button class="btn btn-secondary" id="btnMfSyncNow">今すぐ同期</button>
-        <span id="mfCfgState" style="font-size:12px; color:#6B7A87;">確認中…</span>
+        <span id="mfCfgState" style="font-size:12px; color:#6B7280;">確認中…</span>
       </div>
       <div id="mfSyncMsg" style="font-size:12px; margin-top:6px;"></div>
-      <div style="font-size:11.5px; color:#6B7A87; margin-top:8px;">MFで見積書ができると案件管理タブと自動突合(できない場合は「要確認リスト」に表示)。紐付け後にMF側で見積の金額や作成日を改定した場合も、その都度システム側の見積額・見積日に反映されます。請求書が発行されると進捗ステータスを「請求書提出」に、入金予定日を請求書の支払期限に、請求状況を「請求済」に自動更新します。MF側で入金が確認されると請求状況を「入金済」に自動更新します(この確認は紐付け済みの案件も毎回行うため、あとから入金が確定した場合も反映されます)。毎日朝6時頃に自動同期します(すぐ反映したい時は「今すぐ同期」を押してください)。</div>
+      <div style="font-size:11.5px; color:#6B7280; margin-top:8px;">MFで見積書ができると案件管理タブと自動突合(できない場合は「要確認リスト」に表示)。紐付け後にMF側で見積の金額や作成日を改定した場合も、その都度システム側の見積額・見積日に反映されます。請求書が発行されると進捗ステータスを「請求書提出」に、入金予定日を請求書の支払期限に、請求状況を「請求済」に自動更新します。MF側で入金が確認されると請求状況を「入金済」に自動更新します(この確認は紐付け済みの案件も毎回行うため、あとから入金が確定した場合も反映されます)。毎日朝6時頃に自動同期します(すぐ反映したい時は「今すぐ同期」を押してください)。</div>
     </div>
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:8px;">運用ルール</h3>
-      <ul style="padding-left:20px; line-height:1.9; color:#3D4F5E; font-size:12.5px;">
+      <ul style="padding-left:20px; line-height:1.9; color:#374151; font-size:12.5px;">
         <li>毎日:日報タブから日報を送信(Teamsにも自動投稿)</li>
         <li>毎週金曜:会議モードで繁忙度・応援依頼を更新 → 社長報告を印刷/PDF化</li>
         <li>連絡事項は必ず「既読にする」を押す(誰が読んだか全員に見えます)</li>
@@ -3857,9 +4326,9 @@ function renderSettings(){
     try{
       const r=await fetch("/api/mf/sync?manual=1");
       const j=await r.json();
-      if(!r.ok){ $("mfSyncMsg").innerHTML=`<span style="color:#B54747;">同期エラー:${esc(j.error||r.status)}</span>`; }
+      if(!r.ok){ $("mfSyncMsg").innerHTML=`<span style="color:#EF4444;">同期エラー:${esc(j.error||r.status)}</span>`; }
       else{ $("mfSyncMsg").textContent=`同期完了:見積${j.quotesSeen}件(突合${j.quotesLinked}・金額改定${j.quotesUpdated||0}・要確認${j.quotesQueued})、請求書${j.billingsSeen}件(更新${j.billingsUpdated}・要確認${j.billingsQueued})`; }
-    }catch(e){ $("mfSyncMsg").innerHTML=`<span style="color:#B54747;">同期エラー:${esc(e.message||e)}</span>`; }
+    }catch(e){ $("mfSyncMsg").innerHTML=`<span style="color:#EF4444;">同期エラー:${esc(e.message||e)}</span>`; }
     btn.disabled=false; btn.textContent="今すぐ同期";
   });
 }
@@ -3868,7 +4337,7 @@ async function refreshMfStatus(){
     const r=await fetch("/api/mf/status");
     const j=await r.json();
     $("mfCfgState").textContent = j.connected ? `連携済み:${j.officeName||"(事業者名未取得)"}` : "未連携";
-    if(j.apiError){ $("mfSyncMsg").innerHTML=`<span style="color:#B54747;">API疎通エラー:${esc(j.apiError)}</span>`; }
+    if(j.apiError){ $("mfSyncMsg").innerHTML=`<span style="color:#EF4444;">API疎通エラー:${esc(j.apiError)}</span>`; }
   }catch(e){ $("mfCfgState").textContent="状態確認エラー"; }
 }
 
