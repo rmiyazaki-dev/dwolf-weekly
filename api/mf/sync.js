@@ -66,11 +66,16 @@ async function syncPartners(accessToken, summary) {
     while (cur && cur.merged_into && hops < 5) { cur = byId.get(String(cur.merged_into)); hops++; }
     return cur || c;
   };
-  const byPartnerId = new Map(customers.filter((c) => c.mf_partner_id).map((c) => [String(c.mf_partner_id), resolveMerged(c)]));
+  const byPartnerId = new Map(customers.filter((c) => c.mf_partner_id && !c.deleted_at).map((c) => [String(c.mf_partner_id), resolveMerged(c)]).filter(([, c]) => c && !c.deleted_at));
   const byNormName = new Map();
-  customers.filter((c) => !c.merged_into).forEach((c) => {
+  customers.filter((c) => !c.merged_into && !c.deleted_at).forEach((c) => {
     const k = normalizePartnerName(c.name);
     if (k && !byNormName.has(k)) byNormName.set(k, c);
+  });
+  const deletedByNormName = new Map();
+  customers.filter((c) => c.deleted_at).forEach((c) => {
+    const k = normalizePartnerName(c.name);
+    if (k && !deletedByNormName.has(k)) deletedByNormName.set(k, c);
   });
 
   const toInsert = [];
@@ -92,7 +97,19 @@ async function syncPartners(accessToken, summary) {
 
     /* 統合済みの行がこのpartner_idを持っている場合は、行の更新はせずMap解決のみ行う */
     const rawExisting = customers.find((c) => String(c.mf_partner_id || "") === String(p.id));
-    if (rawExisting && rawExisting.merged_into) continue;
+    /* 復元箱のMF顧客は墓標として残す。同期で更新・再表示・案件への自動紐付けをしない。 */
+    if (rawExisting && (rawExisting.merged_into || rawExisting.deleted_at)) continue;
+    /* 手動登録後に復元箱へ入れた顧客とMF名が一致した場合も、新しい通常行は作らない。
+       MFのpartner_idだけを墓標へ記録し、以後の同期でも同じ行を識別できるようにする。 */
+    const deletedNameHit = !rawExisting ? deletedByNormName.get(normalizePartnerName(fromMf.name)) : null;
+    if (deletedNameHit) {
+      if (!deletedNameHit.mf_partner_id) {
+        await db.updateCustomer(deletedNameHit.id, { mf_partner_id: String(p.id) });
+        deletedNameHit.mf_partner_id = String(p.id);
+        summary.partnersUpserted++;
+      }
+      continue;
+    }
 
     let existing = rawExisting;
     if (!existing) {
@@ -126,7 +143,7 @@ async function syncPartners(accessToken, summary) {
     const refreshed = await db.getCustomers();
     const byId2 = new Map(refreshed.map((c) => [String(c.id), c]));
     const resolve2 = (c) => { let cur = c, hops = 0; while (cur && cur.merged_into && hops < 5) { cur = byId2.get(String(cur.merged_into)); hops++; } return cur || c; };
-    refreshed.forEach((c) => { if (c.mf_partner_id) byPartnerId.set(String(c.mf_partner_id), resolve2(c)); });
+    refreshed.forEach((c) => { if (c.mf_partner_id && !c.deleted_at) byPartnerId.set(String(c.mf_partner_id), resolve2(c)); });
   }
   return byPartnerId;
 }

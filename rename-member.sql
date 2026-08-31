@@ -30,7 +30,10 @@ union all select 'announcements',count(*) from announcements, target where autho
 union all select 'audit_log',    count(*) from audit_log, target    where author = old_name
 union all select 'case_history', count(*) from case_history, target where author = old_name
 union all select 'comments',     count(*) from comments, target     where author = old_name
-union all select 'case_files',   count(*) from case_files, target   where author = old_name;
+union all select 'case_files',   count(*) from case_files, target   where author = old_name
+union all select 'customers',    count(*) from customers, target    where deleted_by = old_name
+union all select 'customer_activities', count(*) from customer_activities, target where created_by = old_name
+union all select 'customer_merge_history', count(*) from customer_merge_history, target where merged_by = old_name or undone_by = old_name;
 
 -- ------------------------------------------------------------
 -- ② 置換の実行
@@ -89,6 +92,17 @@ begin
   update case_files set author = new_name where author = old_name;
   get diagnostics n = row_count; total := total + n; raise notice 'case_files: % 行', n;
 
+  update customers set deleted_by = new_name where deleted_by = old_name;
+  get diagnostics n = row_count; total := total + n; raise notice 'customers.deleted_by: % 行', n;
+
+  update customer_activities set created_by = new_name where created_by = old_name;
+  get diagnostics n = row_count; total := total + n; raise notice 'customer_activities.created_by: % 行', n;
+
+  update customer_merge_history set merged_by = new_name where merged_by = old_name;
+  get diagnostics n = row_count; total := total + n; raise notice 'customer_merge_history.merged_by: % 行', n;
+  update customer_merge_history set undone_by = new_name where undone_by = old_name;
+  get diagnostics n = row_count; total := total + n; raise notice 'customer_merge_history.undone_by: % 行', n;
+
   raise notice '----- 合計 % 行を更新しました(% → %) -----', total, old_name, new_name;
 end $$;
 
@@ -105,7 +119,10 @@ union all select 'announcements',count(*) from announcements, target where autho
 union all select 'audit_log',    count(*) from audit_log, target    where author = old_name
 union all select 'case_history', count(*) from case_history, target where author = old_name
 union all select 'comments',     count(*) from comments, target     where author = old_name
-union all select 'case_files',   count(*) from case_files, target   where author = old_name;
+union all select 'case_files',   count(*) from case_files, target   where author = old_name
+union all select 'customers',    count(*) from customers, target    where deleted_by = old_name
+union all select 'customer_activities', count(*) from customer_activities, target where created_by = old_name
+union all select 'customer_merge_history', count(*) from customer_merge_history, target where merged_by = old_name or undone_by = old_name;
 
 -- ------------------------------------------------------------
 -- ④ Supabase Auth の表示名も合わせる(必要な場合)

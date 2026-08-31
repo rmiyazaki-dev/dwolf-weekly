@@ -21,7 +21,8 @@ declare
   t text;
   tables text[] := array[
     'kv','weeks','cases','customers','case_history','case_files',
-    'comments','announcements','audit_log','nippo','todos','mf_review_queue'
+    'comments','announcements','audit_log','nippo','todos','mf_review_queue',
+    'customer_activities','customer_merge_history'
   ];
 begin
   foreach t in array tables loop

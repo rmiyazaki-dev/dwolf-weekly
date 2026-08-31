@@ -755,7 +755,7 @@
           <button class="btn btn-primary" id="btnAddCase">＋ 案件追加</button>
         </div>
       </div>
-      <div class="alert alert-info" style="font-size:12px;">案件は週をまたいで自動継続します。終わったら「完了」または「失注」を押すと、進捗ステータスもそれに変わります。不要な案件は「削除」で消せます(元に戻せません)。</div>
+      <div class="alert alert-info" style="font-size:12px;">案件は週をまたいで自動継続します。終わったら「完了」または「失注」を押すと、進捗ステータスもそれに変わります。不要な案件は「削除」で復元箱へ移動し、30日以内なら設定タブから元に戻せます。</div>
       <div id="dashFilterBanner"></div>
       <div id="dueAlerts"></div>
       <div id="mfReviewQueue"></div>
@@ -1008,7 +1008,11 @@ let me = null;
 let master = structuredClone(DEFAULT_MASTER);
 let week = null;
 let cases = [];
+let deletedCases = [];
 let customers = [];
+let customerActivities = [];
+let customerMergeHistory = [];
+let customerCrmSchemaReady = true;
 let settings = {};
 let announcements = [];
 let mfReviewQueue = [];
@@ -1023,6 +1027,8 @@ let editingCase = null;
 let commentCaseId = null;
 let fileCaseId = null;
 const BILLING_STATUSES = ["未請求","請求済","入金済"];
+const RECYCLE_RETENTION_DAYS = 30;
+const RECYCLE_RETENTION_MS = RECYCLE_RETENTION_DAYS*24*60*60*1000;
 const fmtYen = (n)=>{ const v=parseFloat(n); return isNaN(v)||v===0? "" : "¥"+v.toLocaleString("ja-JP"); };
 
 const $ = (id) => document.getElementById(id);
@@ -1087,7 +1093,9 @@ async function updateWeekMine(key, mutate, slot){
 }
 async function loadCases(){
   const {data}=await sb.from("cases").select("id,data").order("id",{ascending:false});
-  cases=(data||[]).map(r=>({ id:r.id, ...r.data }));
+  const all=(data||[]).map(r=>({ id:r.id, ...r.data }));
+  cases=all.filter(c=>!c.deletedAt);
+  deletedCases=all.filter(c=>!!c.deletedAt);
   await migrateCasesV36();
   await migrateCasesV311();
   const ids=cases.map(c=>c.id);
@@ -1102,6 +1110,20 @@ async function loadCases(){
 async function loadCustomers(){
   const {data}=await sb.from("customers").select("*").order("name",{ascending:true});
   customers=data||[];
+}
+async function loadCustomerCrmData(){
+  customerCrmSchemaReady=true;
+  const [activities,merges]=await Promise.all([
+    sb.from("customer_activities").select("*").order("occurred_at",{ascending:false}).order("id",{ascending:false}),
+    sb.from("customer_merge_history").select("*").order("merged_at",{ascending:false}),
+  ]);
+  if(activities.error||merges.error){
+    customerCrmSchemaReady=false;
+    customerActivities=[]; customerMergeHistory=[];
+    return;
+  }
+  customerActivities=activities.data||[];
+  customerMergeHistory=merges.data||[];
 }
 async function logCaseHistory(caseId, action, detail){
   try{ await sb.from("case_history").insert({case_id:caseId, author:me, action, detail}); }catch(e){}
@@ -1300,7 +1322,7 @@ function applyViewerLock(){
     b.disabled=true; b.classList.add("viewer-disabled");
   });
   const extraWriteSelectors=[
-    "[data-case-reopen]","[data-kb-reopen]","#btnCustMergeOther","#btnIcs",
+    "[data-case-reopen]","[data-kb-reopen]","#btnCustMergeOther","[data-merge-undo]","[data-merge-legacy]","#btnIcs",
     "[data-sch]","[data-bann]","[data-todo-t]","[data-busy]","[data-hneed]","[data-hgive]",
     "[data-ns-work]","[data-ns-issue]","[data-mt-done]","#managerSelect","#mandayLimit",
     "#googleClientId","#teamsTenantId","#teamsClientId",".ics-url","#meetingNote","#decisions",
@@ -1352,7 +1374,7 @@ async function switchTab(tab){
   if(tab==="board"){ await Promise.all([loadWeek(), loadAnnouncements()]); renderBoard(); refreshFeedBadge(); }
   if(tab==="todos"){ await Promise.all([loadTodos(), loadCases()]); renderTodos(); refreshTodoBadge(); }
   if(tab==="cases"){ await Promise.all([loadCases(), loadCustomers(), loadMfReviewQueue()]); renderCases(); }
-  if(tab==="customers"){ await Promise.all([loadCases(), loadCustomers()]); renderCustomers(); }
+  if(tab==="customers"){ await Promise.all([loadCases(), loadCustomers(), loadCustomerCrmData(), loadTodos()]); renderCustomers(); }
   if(tab==="kanban"){ await loadCases(); renderKanban(); }
   if(tab==="dashboard"){ await Promise.all([loadCases(), loadCustomers()]); renderDashboard(); }
   if(tab==="feed"){ await loadAnnouncements(); renderFeed(); await renderAudit(); refreshFeedBadge(); }
@@ -1360,7 +1382,7 @@ async function switchTab(tab){
   if(tab==="meeting"){ await Promise.all([loadWeek(), loadCases(), loadTodos(), loadPrevWeekDecisions()]); renderMeeting(); }
   if(tab==="report"){ await Promise.all([loadWeek(), loadCases()]); renderReport(); }
   if(tab==="master"){ renderMaster(); }
-  if(tab==="settings"){ renderSettings(); }
+  if(tab==="settings"){ await Promise.all([loadCases(), loadCustomers(), loadCustomerCrmData()]); renderSettings(); }
 }
 async function reloadCurrent(){ await switchTab(currentTab); setStatus("更新しました"); }
 
@@ -2154,6 +2176,9 @@ function actionInfo(cs){
   const diff=Math.round((due-today)/86400000);
   return {over:diff<0, today:diff===0, diff};
 }
+function isMissingNextAction(cs){
+  return isOpenCase(cs)&&(!String(cs.nextAction||"").trim()||!cs.nextActionDate);
+}
 function renderDueAlerts(){
   const alerts=cases.map(c=>({c, d:dueInfo(c)})).filter(x=>x.d);
   const over=alerts.filter(x=>x.d.level==="over");
@@ -2163,7 +2188,13 @@ function renderDueAlerts(){
   if(over.length) html+=`<div class="alert alert-error"><b>実施日超過(未完了):</b>${over.map(x=>`${esc(x.c.name)}(${esc(caseOwnerName(x.c))}・${esc(x.c.execDate)})`).join("　/　")}</div>`;
   if(soon.length) html+=`<div class="alert alert-warning"><b>実施日間近:</b>${soon.map(x=>`${esc(x.c.name)}(${esc(caseOwnerName(x.c))}・${x.d.label})`).join("　/　")}</div>`;
   if(actOver.length) html+=`<div class="alert alert-warning"><b>次回アクション期限:</b>${actOver.map(x=>`${esc(x.c.name)}「${esc(x.c.nextAction)}」(${esc(caseOwnerName(x.c))}・${esc(x.c.nextActionDate)}${x.a.over?"・超過":"・本日"})`).join("　/　")}</div>`;
+  const missing=cases.filter(isMissingNextAction);
+  if(missing.length) html+=`<div class="alert alert-info"><b>次回アクション未設定 ${missing.length}件:</b><div style="display:grid; gap:5px; margin-top:7px;">${missing.map(c=>{
+    const lacks=!String(c.nextAction||"").trim()&&!c.nextActionDate?"内容・期日":!String(c.nextAction||"").trim()?"内容":"期日";
+    return `<div style="display:flex; align-items:center; gap:8px; background:#FFFFFF; border:1px solid #D1D5DB; border-radius:6px; padding:6px 8px;"><span style="font-weight:700;">${esc(c.name)}</span><span style="font-size:11.5px; color:#374151;">${esc(c.customerName||"顧客未設定")}｜${esc(caseOwnerName(c)||"担当未設定")}｜${lacks}未設定</span><button class="btn btn-small btn-secondary" data-missing-action="${c.id}" style="margin-left:auto;">編集</button></div>`;
+  }).join("")}</div></div>`;
   $("dueAlerts").innerHTML=html;
+  document.querySelectorAll("[data-missing-action]").forEach(b=>b.addEventListener("click",()=>openCase(+b.dataset.missingAction)));
 }
 /* ---------- Money Forward連携:要確認リスト ---------- */
 /* MFのdue_date等は "2026/07/21" 形式で来るため、<input type="date"> が要求するISO形式に正規化する */
@@ -2328,8 +2359,8 @@ function mfNormName(name){
     .replace(/有限会社|（有）|\(有\)/g,"")
     .toLowerCase();
 }
-/* 統合(merged_into)されていない顧客のみ。一覧・候補セレクト・集計はこちらを使う */
-function activeCustomers(){ return customers.filter(c=>!c.merged_into); }
+/* 統合済み・復元箱入りを除いた顧客のみ。一覧・候補セレクト・集計はこちらを使う */
+function activeCustomers(){ return customers.filter(c=>!c.merged_into&&!c.deleted_at); }
 /* 統合済み顧客を統合先に解決する */
 function resolveCustomer(c){
   let cur=c, hops=0;
@@ -2354,8 +2385,93 @@ function custStats(cust){
   const dormant = total>0 && last && (Date.now()-new Date(last+"T00:00:00").getTime()) > DORMANT_DAYS*86400000;
   return {count:list.length, total, fyTotal, last, dormant};
 }
+const ACTIVITY_TYPES={call:"電話",email:"メール",visit:"訪問",meeting:"打合せ",note:"メモ",other:"その他"};
+function customerFamilyIds(cust){
+  return new Set([String(cust.id),...customers.filter(x=>x.merged_into&&String(resolveCustomer(x).id)===String(cust.id)).map(x=>String(x.id))]);
+}
+function localDateTimeValue(d=new Date()){
+  const pad=n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+async function renderCustomerTimeline(cust){
+  const host=$("customerTimeline"); if(!host) return;
+  const expectedCustomerId=String(cust.id);
+  const family=customerFamilyIds(cust);
+  const list=casesOfCustomer(cust);
+  const caseIds=list.map(c=>c.id);
+  let histories=[],comments=[];
+  if(caseIds.length){
+    const [h,cm]=await Promise.all([
+      sb.from("case_history").select("*").in("case_id",caseIds).order("id",{ascending:false}),
+      sb.from("comments").select("*").in("case_id",caseIds).order("id",{ascending:false}),
+    ]);
+    histories=h.data||[]; comments=cm.data||[];
+  }
+  if(String(custDetailId)!==expectedCustomerId||!$("customerTimeline")) return;
+  const byCase=new Map(list.map(c=>[String(c.id),c]));
+  const events=[];
+  customerActivities.filter(a=>family.has(String(a.customer_id))).forEach(a=>events.push({
+    key:`a${a.id}`,at:a.occurred_at,type:ACTIVITY_TYPES[a.activity_type]||a.activity_type,
+    title:a.title,detail:a.detail,author:a.created_by,contact:a.contact_person,caseId:a.case_id,manual:true,
+  }));
+  histories.forEach(h=>events.push({key:`h${h.id}`,at:h.created_at,type:"案件履歴",title:h.action,detail:h.detail,author:h.author,caseId:h.case_id}));
+  comments.forEach(cm=>events.push({key:`c${cm.id}`,at:cm.created_at,type:"コメント",title:cm.content,detail:"",author:cm.author,caseId:cm.case_id}));
+  const milestones=[
+    ["quoteDate","見積","見積提出"],["orderDate","受注","受注"],["execDate","実施","実施"],["paymentDate","入金予定","入金予定"],
+  ];
+  list.forEach(c=>milestones.forEach(([field,type,title])=>{ if(c[field]) events.push({key:`${field}${c.id}`,at:`${c[field]}T12:00:00`,type,title:`${title}: ${c.name}`,detail:field==="paymentDate"?`${c.billingStatus||"未請求"}・${fmtYen(c.orderAmount)||"金額未入力"}`:"",caseId:c.id}); }));
+  events.sort((a,b)=>String(b.at||"").localeCompare(String(a.at||""))||String(b.key).localeCompare(String(a.key)));
+  const upcoming=[];
+  list.filter(isOpenCase).forEach(c=>{
+    if(c.nextAction||c.nextActionDate) upcoming.push({date:c.nextActionDate||"期日未設定",text:c.nextAction||"内容未設定",caseId:c.id,owner:caseOwnerName(c)||"担当未設定"});
+  });
+  (todos||[]).filter(t=>!t.done&&caseIds.some(id=>String(id)===String(t.case_id))).forEach(t=>upcoming.push({date:t.due_date||"期日未設定",text:t.text,caseId:t.case_id,owner:t.assignee||"担当未設定"}));
+  upcoming.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  host.innerHTML=`
+    <div class="card" style="border-left:4px solid #2563EB;">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;"><div><h3 style="font-weight:800;">顧客360° 活動タイムライン</h3><div style="font-size:11.5px; color:#6B7280;">電話・メール・訪問と、案件の変更・コメントを時系列で確認できます。</div></div><span class="chip" style="margin-left:auto; background:rgba(37,99,235,.08); border:1px solid rgba(37,99,235,.28); color:#2563EB;">${events.length}件</span></div>
+      ${!customerCrmSchemaReady?`<div class="alert alert-warning" style="margin-top:10px;">活動登録を使うにはsetup-crm3.sqlの実行が必要です。</div>`:`
+      <div style="margin-top:12px; padding:10px; background:#F3F4F6; border:1px solid #D1D5DB; border-radius:8px;">
+        <div style="font-size:12px; font-weight:800; margin-bottom:7px;">活動を記録</div>
+        <div class="modal-cols">
+          <label style="font-size:12px; font-weight:700;">種別<select id="caType" class="w100" style="margin-top:4px;">${Object.entries(ACTIVITY_TYPES).map(([v,l])=>`<option value="${v}">${l}</option>`).join("")}</select></label>
+          <label style="font-size:12px; font-weight:700;">活動日時<input id="caOccurred" type="datetime-local" class="w100" value="${localDateTimeValue()}" style="margin-top:4px;"></label>
+        </div>
+        <div class="modal-cols" style="margin-top:7px;">
+          <label style="font-size:12px; font-weight:700;">関連案件(任意)<select id="caCase" class="w100" style="margin-top:4px;"><option value="">なし</option>${list.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></label>
+          <label style="font-size:12px; font-weight:700;">先方担当者<input id="caContact" class="w100" placeholder="例: 山田様" style="margin-top:4px;"></label>
+        </div>
+        <label style="font-size:12px; font-weight:700; display:block; margin-top:7px;">件名<input id="caTitle" class="w100" placeholder="例: 見積内容の確認電話" style="margin-top:4px;"></label>
+        <label style="font-size:12px; font-weight:700; display:block; margin-top:7px;">内容・結果<textarea id="caDetail" class="w100" rows="2" placeholder="話した内容、合意事項、次の動きなど" style="margin-top:4px;"></textarea></label>
+        <div style="display:flex; justify-content:flex-end; margin-top:8px;"><button class="btn btn-primary btn-small" id="btnActivityAdd">活動を登録</button></div>
+      </div>`}
+      <div style="margin-top:12px;"><div style="font-size:12px; font-weight:800; margin-bottom:6px;">今後のアクション</div>${upcoming.length?`<div style="display:grid; gap:5px;">${upcoming.slice(0,10).map(u=>`<div data-timeline-case="${u.caseId}" style="display:flex; gap:8px; align-items:center; border:1px solid #D1D5DB; border-radius:6px; padding:6px 8px; cursor:pointer;"><span style="color:#2563EB; font-weight:800; min-width:82px;">${esc(u.date)}</span><span style="font-weight:700; flex:1;">${esc(u.text)}</span><span style="font-size:11px; color:#6B7280;">${esc(u.owner)}</span></div>`).join("")}</div>`:`<div class="dashboard-empty">予定されているアクションはありません。</div>`}</div>
+      <div style="margin-top:14px;"><div style="font-size:12px; font-weight:800; margin-bottom:6px;">活動履歴</div>${events.length?`<div style="display:grid; gap:7px;">${events.slice(0,50).map(e=>{ const cc=byCase.get(String(e.caseId)); return `<div style="display:grid; grid-template-columns:110px minmax(0,1fr) auto; gap:9px; align-items:start; border-bottom:1px solid #D1D5DB; padding:7px 2px;"><div style="font-size:11px; color:#6B7280;">${e.at?esc(fmtDT(e.at)):""}<br><span class="chip" style="margin-top:3px; background:#F3F4F6; border:1px solid #D1D5DB; color:#374151;">${esc(e.type)}</span></div><div><div style="font-size:12.5px; font-weight:800; white-space:pre-wrap;">${esc(e.title)}</div>${e.detail?`<div style="font-size:12px; color:#374151; white-space:pre-wrap; margin-top:2px;">${esc(e.detail)}</div>`:""}<div style="font-size:10.5px; color:#6B7280; margin-top:3px;">${e.contact?`先方: ${esc(e.contact)}　`:""}${e.author?`記録: ${esc(e.author)}　`:""}${cc?`案件: <button type="button" data-timeline-case="${cc.id}" style="border:0; background:none; color:#2563EB; font:inherit; padding:0; cursor:pointer; text-decoration:underline; text-decoration-style:dotted;">${esc(cc.name)}</button>`:""}</div></div>${e.manual?`<button class="btn btn-small btn-secondary btn-danger" data-activity-del="${String(e.key).slice(1)}">削除</button>`:""}</div>`; }).join("")}</div>${events.length>50?`<div style="font-size:11px; color:#6B7280; margin-top:6px;">最新50件を表示しています。</div>`:""}`:`<div class="dashboard-empty">活動履歴はまだありません。</div>`}</div>
+    </div>`;
+  $("btnActivityAdd")?.addEventListener("click",()=>addCustomerActivity(cust));
+  host.querySelectorAll("[data-activity-del]").forEach(b=>b.addEventListener("click",()=>deleteCustomerActivity(+b.dataset.activityDel,cust)));
+  host.querySelectorAll("[data-timeline-case]").forEach(el=>el.addEventListener("click",()=>openCase(+el.dataset.timelineCase)));
+  applyViewerLock();
+}
+async function addCustomerActivity(cust){
+  const title=$("caTitle").value.trim(), occurred=$("caOccurred").value;
+  if(!title){ alert("活動の件名を入力してください。"); return; }
+  if(!occurred){ alert("活動日時を入力してください。"); return; }
+  const {error}=await sb.from("customer_activities").insert({customer_id:cust.id,case_id:$("caCase").value?+$("caCase").value:null,activity_type:$("caType").value,occurred_at:new Date(occurred).toISOString(),title,detail:$("caDetail").value.trim(),contact_person:$("caContact").value.trim()||null,created_by:me,updated_at:new Date().toISOString()});
+  if(error){ alert("活動を保存できませんでした。setup-crm3.sqlの実行状況を確認してください。"); return; }
+  await logAction("顧客活動登録",`${cust.name}:${title}`);
+  await loadCustomerCrmData(); renderCustomerTimeline(cust); setStatus("活動を登録しました");
+}
+async function deleteCustomerActivity(id,cust){
+  const a=customerActivities.find(x=>x.id===id); if(!a||!confirm(`活動「${a.title}」を削除しますか?`)) return;
+  const {error}=await sb.from("customer_activities").delete().eq("id",id);
+  if(error){ alert("活動を削除できませんでした。"); return; }
+  await logAction("顧客活動削除",`${cust.name}:${a.title}`);
+  await loadCustomerCrmData(); renderCustomerTimeline(cust); setStatus("活動を削除しました");
+}
 function renderCustomers(){
   renderCustMergeBanner();
+  renderMergeUndoPanel();
   if(custDetailId!=null){ renderCustomerDetail(); return; }
   const q=($("custSearch").value||"").trim().toLowerCase();
   const sort=$("custSort").value||"total";
@@ -2430,6 +2546,7 @@ function renderCustomerDetail(){
       <label style="font-size:12px; font-weight:700; display:block; margin-top:8px;">メモ<textarea id="cdNote" class="w100" rows="2" style="margin-top:4px;">${esc(c.note||"")}</textarea></label>
       <div style="font-size:11px; color:#6B7280; margin-top:4px;">各欄は入力後にフォーカスを外すと自動保存されます。</div>
     </div>
+    <div id="customerTimeline"><div class="card" style="color:#6B7280;">活動履歴を読み込んでいます…</div></div>
     ${(()=>{
       const norm=mfNormName(c.name);
       const dupCandidates=activeCustomers().filter(x=>String(x.id)!==String(c.id) && mfNormName(x.name)===norm);
@@ -2498,6 +2615,7 @@ function renderCustomerDetail(){
   }); };
   saveField("cdName","name"); saveField("cdKana","name_kana"); saveField("cdPerson","contact_person");
   saveField("cdPhone","phone"); saveField("cdEmail","email"); saveField("cdAddress","address"); saveField("cdNote","note");
+  renderCustomerTimeline(c);
   document.querySelectorAll("[data-cust-merge]").forEach(b=>b.addEventListener("click", ()=>mergeCustomerInto(+b.dataset.custMerge, c)));
   $("btnCustMergeOther").addEventListener("click", ()=>{
     const id=$("custMergeOther").value;
@@ -2511,27 +2629,94 @@ function renderCustomerDetail(){
 async function mergeCustomerInto(dupId, primary){
   const dup=customers.find(x=>String(x.id)===String(dupId));
   if(!dup || String(dup.id)===String(primary.id)) return;
+  if(!customerCrmSchemaReady){ alert("顧客統合の履歴を保存する準備が未完了です。先にsetup-crm3.sqlを実行してください。"); return; }
+  if(dup.deleted_at||primary.deleted_at){ alert("復元箱にある顧客は統合できません。先に復元してください。"); return; }
+  if(dup.merged_into){ alert("この顧客はすでに統合済みです。"); return; }
   if(!confirm(`「${dup.name}」を「${primary.name}」に統合しますか?\n(案件・売上は「${primary.name}」に合算されます。MF側は変更されません)`)) return;
+  const targets=cases.filter(x=>String(x.customerId||"")===String(dup.id));
+  const {data:history,error:historyError}=await sb.from("customer_merge_history").insert({
+    source_customer_id:dup.id, target_customer_id:primary.id,
+    source_name:dup.name, target_name:primary.name,
+    source_snapshot:dup, target_snapshot:primary,
+    moved_case_ids:targets.map(x=>x.id), merged_by:me,
+  }).select().single();
+  if(historyError||!history){ alert("統合履歴を保存できなかったため、統合を中止しました。setup-crm3.sqlの実行状況を確認してください。"); return; }
   /* 担当者は両者の行をユニオン */
   const persons=[...new Set([...(primary.contact_person||"").split("\n"), ...(dup.contact_person||"").split("\n")].map(s=>s.trim()).filter(Boolean))].join("\n");
   const patch={contact_person:persons};
   for(const k of ["phone","email","address","name_kana"]){ if(!primary[k] && dup[k]) patch[k]=dup[k]; }
   if(dup.note && !String(primary.note||"").includes(dup.note)) patch.note=[primary.note, dup.note].filter(Boolean).join(" / ");
-  await sb.from("customers").update({...patch, updated_at:new Date().toISOString()}).eq("id",primary.id);
+  const {error:primaryError}=await sb.from("customers").update({...patch, updated_at:new Date().toISOString()}).eq("id",primary.id);
+  if(primaryError){ await sb.from("customer_merge_history").delete().eq("id",history.id); alert("統合先の更新に失敗したため中止しました。"); return; }
   Object.assign(primary, patch);
-  await sb.from("customers").update({merged_into:primary.id, updated_at:new Date().toISOString()}).eq("id",dup.id);
+  const {error:sourceError}=await sb.from("customers").update({merged_into:primary.id, updated_at:new Date().toISOString()}).eq("id",dup.id);
+  if(sourceError){
+    const snap=history.target_snapshot||{};
+    await sb.from("customers").update({contact_person:snap.contact_person||null,phone:snap.phone||null,email:snap.email||null,address:snap.address||null,name_kana:snap.name_kana||null,note:snap.note||null,updated_at:new Date().toISOString()}).eq("id",primary.id);
+    await sb.from("customer_merge_history").delete().eq("id",history.id);
+    alert("統合元の更新に失敗したため中止しました。"); return;
+  }
   dup.merged_into=primary.id;
   /* dupに紐付いていた案件をprimaryへ付け替え */
-  const targets=cases.filter(x=>String(x.customerId||"")===String(dup.id));
+  let moved=0;
   for(const x of targets){
     x.customerId=String(primary.id); x.customerName=primary.name; x.updatedAt=Date.now();
-    await saveCaseRow(x);
+    if(!await saveCaseRow(x)){ alert(`「${x.name}」の付け替えに失敗しました。統合履歴から取り消して状態を確認してください。`); break; }
+    moved++;
     await logCaseHistory(x.id, "顧客統合", `${dup.name} → ${primary.name}`);
   }
-  await logAction("顧客統合", `${dup.name} → ${primary.name}(案件${targets.length}件を付け替え)`);
-  await Promise.all([loadCases(), loadCustomers()]);
+  await logAction("顧客統合", `${dup.name} → ${primary.name}(案件${moved}件を付け替え・履歴#${history.id})`);
+  await Promise.all([loadCases(), loadCustomers(), loadCustomerCrmData()]);
   renderCustomers();
   setStatus("統合しました");
+}
+async function undoCustomerMerge(historyId){
+  const h=customerMergeHistory.find(x=>String(x.id)===String(historyId)&&!x.undone_at); if(!h) return;
+  const source=customers.find(x=>String(x.id)===String(h.source_customer_id));
+  const target=customers.find(x=>String(x.id)===String(h.target_customer_id));
+  if(!source||!target){ alert("統合元または統合先の顧客が見つかりません。"); return; }
+  if(source.deleted_at||target.deleted_at){ alert("復元箱にある顧客が含まれます。先に顧客を復元してください。"); return; }
+  if(target.merged_into){ const next=resolveCustomer(target); alert(`統合先「${target.name}」も「${next?.name||"別の顧客"}」へ統合されています。新しい統合から先に取り消してください。`); return; }
+  if(String(source.merged_into||"")!==String(target.id)){ alert("現在の統合状態が履歴と異なるため、自動で取り消せません。"); return; }
+  const ids=Array.isArray(h.moved_case_ids)?h.moved_case_ids:[];
+  if(!confirm(`「${h.source_name}」→「${h.target_name}」の統合を取り消しますか?\n統合時に移動した案件${ids.length}件のうち、現在も統合先にある案件だけを元へ戻します。\n統合先にコピーした連絡先は、統合後の編集を守るため残します。`)) return;
+  const {error}=await sb.from("customers").update({merged_into:null,updated_at:new Date().toISOString()}).eq("id",source.id);
+  if(error){ alert("顧客の再表示に失敗しました。"); return; }
+  let restored=0;
+  for(const id of ids){
+    const c=cases.find(x=>String(x.id)===String(id));
+    if(!c||String(c.customerId||"")!==String(target.id)) continue;
+    c.customerId=String(source.id); c.customerName=source.name; c.updatedAt=Date.now();
+    if(await saveCaseRow(c)){ restored++; await logCaseHistory(c.id,"顧客統合取消",`${target.name} → ${source.name}`); }
+  }
+  const {error:historyError}=await sb.from("customer_merge_history").update({undone_at:new Date().toISOString(),undone_by:me}).eq("id",h.id).is("undone_at",null);
+  if(historyError){ alert("案件は復元しましたが、統合履歴の完了記録に失敗しました。管理者へ連絡してください。"); }
+  await logAction("顧客統合取消",`${h.source_name} ← ${h.target_name}(案件${restored}件を復元・履歴#${h.id})`);
+  await Promise.all([loadCases(),loadCustomers(),loadCustomerCrmData()]);
+  custDetailId=null; renderCustomers(); setStatus("顧客統合を取り消しました");
+}
+async function restoreLegacyMergedCustomer(customerId){
+  const c=customers.find(x=>String(x.id)===String(customerId)); if(!c||!c.merged_into) return;
+  const target=customers.find(x=>String(x.id)===String(c.merged_into));
+  if(!confirm(`過去の統合「${c.name}」→「${target?.name||"統合先"}」には復元履歴がありません。\n顧客を一覧へ再表示しますか?\n案件とコピー済みの連絡先は自動では元に戻せません。`)) return;
+  const {error}=await sb.from("customers").update({merged_into:null,updated_at:new Date().toISOString()}).eq("id",c.id);
+  if(error){ alert("顧客の再表示に失敗しました。"); return; }
+  await logAction("過去統合顧客を再表示",`${c.name}(案件・連絡先は変更なし)`);
+  await loadCustomers(); custDetailId=null; renderCustomers(); setStatus("顧客を再表示しました");
+}
+function renderMergeUndoPanel(){
+  const host=$("custMergeBanner"); if(!host) return;
+  if(!customerCrmSchemaReady){
+    host.insertAdjacentHTML("beforeend",`<div class="alert alert-warning"><b>CRM追加機能の初期設定が必要です。</b> 顧客活動と統合取消を使うには、Supabaseでsetup-crm3.sqlを実行してください。</div>`);
+    return;
+  }
+  const activeHistory=customerMergeHistory.filter(h=>!h.undone_at);
+  const recorded=new Set(activeHistory.map(h=>String(h.source_customer_id)));
+  const legacy=customers.filter(c=>c.merged_into&&!c.deleted_at&&!recorded.has(String(c.id)));
+  if(!activeHistory.length&&!legacy.length) return;
+  host.insertAdjacentHTML("beforeend",`<div class="card" style="border-left:4px solid #D4AF37;"><h3 style="font-weight:800; margin-bottom:6px;">顧客統合の管理</h3><div style="font-size:11.5px; color:#6B7280; margin-bottom:8px;">今回以降の統合は移動した案件を記録しているため取り消せます。過去分は顧客の再表示のみ可能です。</div><div style="display:grid; gap:7px;">${activeHistory.map(h=>`<div style="display:flex; gap:8px; align-items:center; border:1px solid #D1D5DB; border-radius:7px; padding:7px 9px;"><span style="font-weight:700;">${esc(h.source_name)} → ${esc(h.target_name)}</span><span style="font-size:11.5px; color:#6B7280;">${esc(h.merged_by||"")}・${h.merged_at?esc(fmtDT(h.merged_at)):""}</span><button class="btn btn-small btn-secondary" data-merge-undo="${h.id}" style="margin-left:auto;">統合を取り消す</button></div>`).join("")}${legacy.map(c=>{ const t=customers.find(x=>String(x.id)===String(c.merged_into)); return `<div style="display:flex; gap:8px; align-items:center; border:1px solid #D1D5DB; border-radius:7px; padding:7px 9px;"><span style="font-weight:700;">${esc(c.name)} → ${esc(t?.name||"統合先")}</span><span class="chip" style="background:#F3F4F6; border:1px solid #D1D5DB; color:#6B7280;">過去データ</span><button class="btn btn-small btn-secondary" data-merge-legacy="${c.id}" style="margin-left:auto;">顧客を再表示</button></div>`; }).join("")}</div></div>`);
+  document.querySelectorAll("[data-merge-undo]").forEach(b=>b.addEventListener("click",()=>undoCustomerMerge(+b.dataset.mergeUndo)));
+  document.querySelectorAll("[data-merge-legacy]").forEach(b=>b.addEventListener("click",()=>restoreLegacyMergedCustomer(+b.dataset.mergeLegacy)));
 }
 /* 名寄せツール: customerId未設定の案件を顧客名ごとにまとめて、マスタへ一括紐付け */
 function renderCustMergeBanner(){
@@ -2616,7 +2801,7 @@ function renderCases(){
     : list.map(cs=>{
       const d=dueInfo(cs);
       const dueChip=d? `<span class="chip" style="${d.level==="over"?"background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.30); color:#EF4444;":"background:rgba(245,158,11,.09); border:1px solid rgba(245,158,11,.32); color:#F59E0B;"}">${esc(d.label)}</span>` : "";
-      const amounts=[cs.quoteAmount?`見積 ${fmtYen(cs.quoteAmount)}${cs.quoteDate?`(${esc(cs.quoteDate)})`:""}`:"", cs.orderAmount?`受注 ${fmtYen(cs.orderAmount)}${cs.orderDate?`(${esc(cs.orderDate)})`:""}`:"", cs.billingStatus&&cs.billingStatus!=="未請求"?esc(cs.billingStatus):"", cs.paymentDate?`入金予定 ${esc(cs.paymentDate)}`:""].filter(Boolean).join("　");
+      const amounts=[cs.quoteAmount?`見積 ${fmtYen(cs.quoteAmount)}${cs.quoteDate?`(${esc(cs.quoteDate)})`:""}`:"", cs.winProbability!==undefined&&cs.winProbability!==""?`確度 ${esc(cs.winProbability)}%${cs.expectedOrderDate?`・受注予定 ${esc(cs.expectedOrderDate)}`:""}`:"", cs.orderAmount?`受注 ${fmtYen(cs.orderAmount)}${cs.orderDate?`(${esc(cs.orderDate)})`:""}`:"", cs.billingStatus&&cs.billingStatus!=="未請求"?esc(cs.billingStatus):"", cs.paymentDate?`入金予定 ${esc(cs.paymentDate)}`:""].filter(Boolean).join("　");
       const flights=flightAssignments(cs);
       const thisWeekPlan=(cs.weeklyPlans||[]).find(p=>p.weekKey===currentWeekKey())?.text || "";
       const a=actionInfo(cs);
@@ -2721,11 +2906,40 @@ async function confirmLost(){
   $("lostModal").classList.remove("show");
   refreshCaseViews(); setStatus("失注として記録しました");
 }
-/* 案件を完全に削除する。復元できないため、関連データの件数を示したうえで
-   案件名の入力による確認を求める。コメント・履歴・ファイル(Storage含む)・
-   TODOの紐付けもまとめて後始末する */
 async function deleteCase(id){
   const c=cases.find(x=>x.id===id); if(!c) return;
+  if(!confirm(`案件「${c.name}」を復元箱へ移動しますか?\n30日以内なら設定タブから元に戻せます。`)) return;
+  c.deletedAt=new Date().toISOString();
+  c.deletedBy=me;
+  c.updatedAt=Date.now();
+  const ok=await saveCaseRow(c);
+  if(!ok){ alert("復元箱への移動に失敗しました。通信状態を確認してください。"); return; }
+  await logCaseHistory(c.id,"復元箱へ移動",`${c.deletedBy}・${c.deletedAt}`);
+  await logAction("案件を復元箱へ",`${c.name}(${c.customerName||"顧客未設定"})`);
+  await loadCases(); renderCases();
+  setStatus("復元箱へ移動しました");
+}
+function recycleState(deletedAt){
+  const at=new Date(deletedAt).getTime();
+  const remaining=Number.isFinite(at)? at+RECYCLE_RETENTION_MS-Date.now() : 0;
+  const restDays=Math.max(0,Math.ceil(remaining/86400000));
+  const restHours=Math.max(0,Math.ceil(remaining/3600000));
+  return {restorable:remaining>0, remaining, label:remaining<=0?"復元期限切れ":restDays>=2?`残り${restDays}日`:`残り${restHours}時間`};
+}
+async function restoreCase(id){
+  const c=deletedCases.find(x=>x.id===id); if(!c) return;
+  if(!recycleState(c.deletedAt).restorable){ alert("削除から30日が経過しているため復元できません。"); return; }
+  delete c.deletedAt; delete c.deletedBy; c.updatedAt=Date.now();
+  const ok=await saveCaseRow(c);
+  if(!ok){ alert("復元に失敗しました。通信状態を確認してください。"); return; }
+  await logCaseHistory(c.id,"案件復元",`${me}が復元箱から復元`);
+  await logAction("案件復元",c.name);
+  await loadCases(); renderSettings(); setStatus("案件を復元しました");
+}
+/* 30日経過後に案件を完全削除する。関連データとStorageもこの段階まで保持する。 */
+async function purgeCase(id){
+  const c=deletedCases.find(x=>x.id===id); if(!c) return;
+  if(recycleState(c.deletedAt).restorable){ alert("30日間の復元期限中は完全削除できません。"); return; }
   const [{data:cm},{data:cf},{data:ch},{data:td}]=await Promise.all([
     sb.from("comments").select("id").eq("case_id",id),
     sb.from("case_files").select("id,path").eq("case_id",id),
@@ -2738,16 +2952,21 @@ async function deleteCase(id){
     (ch||[]).length? `変更履歴${ch.length}件`:"",
     (td||[]).length? `TODO${td.length}件(案件の紐付けのみ解除)`:"",
   ].filter(Boolean).join("・");
-  const warn=`この案件を完全に削除します。元に戻せません。\n\n`
+  const warn=`復元期限が切れた案件を完全に削除します。元に戻せません。\n\n`
     +`案件名:${c.name}\n顧客:${c.customerName||"未設定"}\n`
     +`${c.orderAmount?`受注額:${fmtYen(c.orderAmount)}\n`:""}`
     +`${counts?`同時に削除:${counts}\n`:""}`
-    +`\n※集計から完全に消えます。実績を残したい場合は「完了」でアーカイブしてください。\n\n続けるには案件名を入力してください。`;
+    +`\n※コメント・履歴・添付ファイルも削除されます。\n\n続けるには案件名を入力してください。`;
   const answer=prompt(warn,"");
   if(answer===null) return;
   if(answer.trim()!==String(c.name).trim()){ alert("案件名が一致しませんでした。削除を中止します。"); return; }
   const paths=(cf||[]).map(f=>f.path).filter(Boolean);
-  if(paths.length){ try{ await sb.storage.from("case-files").remove(paths); }catch(e){ console.error(e); } }
+  if(paths.length){
+    try{
+      const {error}=await sb.storage.from("case-files").remove(paths);
+      if(error){ alert("添付ファイルの削除に失敗しました。案件は復元箱に残しています。\n"+error.message); return; }
+    }catch(e){ alert("添付ファイルの削除に失敗しました。案件は復元箱に残しています。"); return; }
+  }
   await sb.from("comments").delete().eq("case_id",id);
   await sb.from("case_files").delete().eq("case_id",id);
   await sb.from("case_history").delete().eq("case_id",id);
@@ -2755,20 +2974,20 @@ async function deleteCase(id){
   await sb.from("todos").update({case_id:null, updated_at:new Date().toISOString()}).eq("case_id",id);
   const {error}=await sb.from("cases").delete().eq("id",id);
   if(error){ alert("削除に失敗しました:"+error.message); return; }
-  await logAction("案件削除", `${c.name}(${c.customerName||"顧客未設定"}${c.orderAmount?`・受注${fmtYen(c.orderAmount)}`:""})`);
-  await loadCases(); renderCases();
-  setStatus("削除しました");
+  await logAction("案件完全削除", `${c.name}(${c.customerName||"顧客未設定"}${c.orderAmount?`・受注${fmtYen(c.orderAmount)}`:""})`);
+  await loadCases(); renderSettings();
+  setStatus("完全削除しました");
 }
 function openCase(id, prefill){
   editingCase = id==null
     ? {id:null, salesOwner:me, flightOwner:"", flightRatio1:"", flightOwner2:"", flightRatio2:"", flightOwner3:"", flightRatio3:"",
        category:master.categories[0], name:"", status:master.statuses[0], manday:"", weeklyPlans:[], note:"",
-       customerId:"", customerName:"", quoteAmount:"", quoteDate:"", orderAmount:"", orderDate:"", billingStatus:BILLING_STATUSES[0], execDate:"", paymentDate:"", nextAction:"", nextActionDate:"", ...(prefill||{})}
+       customerId:"", customerName:"", quoteAmount:"", quoteDate:"", winProbability:"", expectedOrderDate:"", orderAmount:"", orderDate:"", billingStatus:BILLING_STATUSES[0], execDate:"", paymentDate:"", nextAction:"", nextActionDate:"", ...(prefill||{})}
     : structuredClone(cases.find(x=>x.id===id));
   $("caseModalTitle").textContent=editingCase.id? "案件を編集" : "案件を追加";
   const opt=(arr,cur)=>arr.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("");
   const optBlank=(arr,cur)=>`<option value="" ${!cur?"selected":""}>(未設定)</option>`+arr.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("");
-  const custOpts=`<option value="">(選択なし・下に直接入力)</option>`+customers.map(c=>`<option value="${c.id}" ${String(editingCase.customerId)===String(c.id)?"selected":""}>${esc(c.name)}</option>`).join("");
+  const custOpts=`<option value="">(選択なし・下に直接入力)</option>`+activeCustomers().map(c=>`<option value="${c.id}" ${String(editingCase.customerId)===String(c.id)?"selected":""}>${esc(c.name)}</option>`).join("");
   $("caseFormGrid").innerHTML=`
     <div class="modal-cols">
       <label style="font-size:12px; font-weight:700;">営業担当<select id="cfSalesOwner" class="w100" style="margin-top:4px;">${optBlank(master.members, editingCase.salesOwner||editingCase.owner)}</select><span style="font-weight:400; color:#6B7280; font-size:11px;">受注額の集計・案件の表記に使用</span></label>
@@ -2810,6 +3029,10 @@ function openCase(id, prefill){
     <div class="modal-cols">
       <label style="font-size:12px; font-weight:700;">見積額(円)<input type="number" id="cfQuote" class="w100" value="${esc(editingCase.quoteAmount||"")}" min="0" step="1000" style="margin-top:4px;"></label>
       <label style="font-size:12px; font-weight:700;">見積日<input type="date" id="cfQuoteDate" class="w100" value="${esc(editingCase.quoteDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7280; font-size:11px;">MF連携時は見積の作成日が自動で入ります</span></label>
+    </div>
+    <div class="modal-cols">
+      <label style="font-size:12px; font-weight:700;">受注確度(%)<input type="number" id="cfWinProbability" class="w100" value="${esc(editingCase.winProbability??"")}" min="0" max="100" step="1" placeholder="0〜100" style="margin-top:4px;"><span style="font-weight:400; color:#6B7280; font-size:11px;">見積額×確度を売上予測に反映します</span></label>
+      <label style="font-size:12px; font-weight:700;">受注予定日<input type="date" id="cfExpectedOrderDate" class="w100" value="${esc(editingCase.expectedOrderDate||"")}" style="margin-top:4px;"><span style="font-weight:400; color:#6B7280; font-size:11px;">確度加重予測の計上期になります</span></label>
     </div>
     <div class="modal-cols">
       <label style="font-size:12px; font-weight:700;">受注額(円)<input type="number" id="cfOrder" class="w100" value="${esc(editingCase.orderAmount||"")}" min="0" step="1000" style="margin-top:4px;"></label>
@@ -2872,6 +3095,11 @@ async function saveCase(){
   const before=editingCase.id? cases.find(x=>x.id===editingCase.id) : null;
   const ratio=flightRatioState();
   if(!ratio.ok){ alert(`フライト担当の比率の合計が${ratio.total}%になっています。合計が100%になるように入力してください。`); return; }
+  const probabilityRaw=$("cfWinProbability").value.trim();
+  if(probabilityRaw!==""){
+    const probability=Number(probabilityRaw);
+    if(!Number.isFinite(probability)||probability<0||probability>100){ alert("受注確度は0〜100%で入力してください。"); return; }
+  }
   editingCase.salesOwner=$("cfSalesOwner").value;
   delete editingCase.owner;
   editingCase.flightOwner=$("cfFlightOwner").value;
@@ -2899,6 +3127,8 @@ async function saveCase(){
   editingCase.orderDate=$("cfOrderDate").value;
   editingCase.quoteAmount=$("cfQuote").value;
   editingCase.quoteDate=$("cfQuoteDate").value;
+  editingCase.winProbability=probabilityRaw;
+  editingCase.expectedOrderDate=$("cfExpectedOrderDate").value;
   editingCase.orderAmount=$("cfOrder").value;
   editingCase.billingStatus=$("cfBilling").value;
   editingCase.paymentDate=$("cfPayDate").value;
@@ -2927,8 +3157,12 @@ async function saveCase(){
       if(String(before.billingStatus||"")!==String(editingCase.billingStatus||"")) await logCaseHistory(editingCase.id, "請求状況変更", `${before.billingStatus||"未請求"} → ${editingCase.billingStatus}`);
       if(String(before.orderAmount||"")!==String(editingCase.orderAmount||"")) await logCaseHistory(editingCase.id, "受注額変更", `${fmtYen(before.orderAmount)||"なし"} → ${fmtYen(editingCase.orderAmount)||"なし"}`);
       if(String(before.orderDate||"")!==String(editingCase.orderDate||"")) await logCaseHistory(editingCase.id, "受注日変更", `${before.orderDate||"未設定"} → ${editingCase.orderDate||"未設定"}`);
+      if(String(before.winProbability??"")!==String(editingCase.winProbability??"")) await logCaseHistory(editingCase.id, "受注確度変更", `${before.winProbability===""||before.winProbability==null?"未設定":before.winProbability+"%"} → ${editingCase.winProbability===""?"未設定":editingCase.winProbability+"%"}`);
+      if(String(before.expectedOrderDate||"")!==String(editingCase.expectedOrderDate||"")) await logCaseHistory(editingCase.id, "受注予定日変更", `${before.expectedOrderDate||"未設定"} → ${editingCase.expectedOrderDate||"未設定"}`);
       if(String(before.execDate||"")!==String(editingCase.execDate||"")) await logCaseHistory(editingCase.id, "実施日変更", `${before.execDate||"未設定"} → ${editingCase.execDate||"未設定"}`);
       if(String(before.paymentDate||"")!==String(editingCase.paymentDate||"")) await logCaseHistory(editingCase.id, "入金予定日変更", `${before.paymentDate||"未設定"} → ${editingCase.paymentDate||"未設定"}`);
+      if(String(before.nextAction||"")!==String(editingCase.nextAction||"")||String(before.nextActionDate||"")!==String(editingCase.nextActionDate||"")) await logCaseHistory(editingCase.id, "次回アクション変更", `${before.nextAction||"内容未設定"}(${before.nextActionDate||"期日未設定"}) → ${editingCase.nextAction||"内容未設定"}(${editingCase.nextActionDate||"期日未設定"})`);
+      if(String(before.customerId||"")!==String(editingCase.customerId||"")) await logCaseHistory(editingCase.id, "顧客変更", `${before.customerName||"未設定"} → ${editingCase.customerName||"未設定"}`);
     }
   }
   if(ok && pendingMfLink){
@@ -3210,7 +3444,7 @@ function renderDashboard(){
   /* 表示する期を先に決める(下の3グラフも同じ期で集計するため) */
   const fySet=new Set([currentFY()]);
   cases.forEach(c=>{
-    [fyOf(orderBaseDate(c)), fyOf(c.paymentDate)].forEach(f=>{ if(f!=null) fySet.add(f); });
+    [fyOf(orderBaseDate(c)), fyOf(c.paymentDate), fyOf(c.expectedOrderDate)].forEach(f=>{ if(f!=null) fySet.add(f); });
   });
   const fyList=[...fySet].sort((a,b)=>a-b);
   if(dashFY==null || !fyList.includes(dashFY)) dashFY=currentFY();
@@ -3487,6 +3721,31 @@ function renderDashboard(){
         </div>`).join("")}` : `<div style="color:#6B7280; font-size:12px;">失注の記録はまだありません(案件管理の「失注」ボタンで記録すると、ここに成約率と理由の内訳が表示されます)。</div>`}
     </div>`;
 
+  /* 確度加重予測は実績と混同しないよう、未受注・進行中の見積だけを受注予定日で期分けする。 */
+  const forecastBase=cases.filter(c=>isOpenCase(c)&&num(c.orderAmount)===0&&num(c.quoteAmount)>0);
+  const hasProbability=(c)=>c.winProbability!==""&&c.winProbability!==undefined&&c.winProbability!==null&&Number.isFinite(Number(c.winProbability))&&Number(c.winProbability)>=0&&Number(c.winProbability)<=100;
+  const forecastRows=forecastBase.filter(c=>fyOf(c.expectedOrderDate)===dashFY&&hasProbability(c)).map(c=>({c,probability:Number(c.winProbability),weighted:Math.round(num(c.quoteAmount)*Number(c.winProbability)/100)})).sort((a,b)=>b.weighted-a.weighted);
+  const forecastRaw=sum(forecastRows.map(x=>x.c),c=>num(c.quoteAmount));
+  const forecastWeighted=forecastRows.reduce((a,x)=>a+x.weighted,0);
+  const forecastLanding=cur.orderAmt+forecastWeighted;
+  const probabilityMissing=forecastBase.filter(c=>!hasProbability(c));
+  const expectedDateMissing=forecastBase.filter(c=>!c.expectedOrderDate);
+  const forecastCard=`
+    <div class="card dashboard-panel-card" style="border-top:4px solid #2563EB;">
+      <div style="display:flex; align-items:flex-start; gap:10px; flex-wrap:wrap; margin-bottom:10px;"><div><h3 style="font-weight:800;">確度加重の受注予測</h3><div style="font-size:11.5px; color:#6B7280;">未受注の見積額 × 受注確度を、受注予定日ベースで${fyLabel(dashFY)}に集計</div></div><button class="btn btn-small btn-secondary" id="btnForecastCases" style="margin-left:auto;">対象案件を案件管理で見る</button></div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+        ${kpi("見積額(額面)",fmtYen(forecastRaw)||"¥0",`${forecastRows.length}件`,"action")}
+        ${kpi("確度加重予測",fmtYen(forecastWeighted)||"¥0","見積額×確度","accent")}
+        ${kpi("受注着地見込",fmtYen(forecastLanding)||"¥0",`受注済 ${fmtYen(cur.orderAmt)||"¥0"} + 予測`,"success")}
+        ${dashFY===currentFY()?kpi("年間受注目標との差",fmtYen(Math.abs(annualTarget-forecastLanding))||"¥0",forecastLanding>=annualTarget?"目標を上回る見込":"目標まで","warning"):""}
+      </div>
+      ${probabilityMissing.length||expectedDateMissing.length?`<div class="alert alert-warning" style="font-size:12px;">予測に必要な入力が不足しています: 確度未設定 ${probabilityMissing.length}件 / 受注予定日未設定 ${expectedDateMissing.length}件。下の案件一覧または案件管理から入力してください。</div>`:""}
+      ${forecastRows.length?`<div style="overflow-x:auto;"><table class="grid" style="margin-bottom:0;"><tr><th>受注予定</th><th>案件</th><th>顧客</th><th>担当</th><th style="text-align:right;">見積額</th><th style="text-align:right;">確度</th><th style="text-align:right;">加重額</th></tr>${forecastRows.map(x=>`<tr data-forecast-case="${x.c.id}" style="cursor:pointer;"><td>${esc(x.c.expectedOrderDate)}</td><td style="font-weight:700; text-decoration:underline; text-decoration-style:dotted;">${esc(x.c.name)}</td><td>${esc(x.c.customerName||"未設定")}</td><td>${esc(caseOwnerName(x.c)||"未設定")}</td><td style="text-align:right;">${fmtYen(x.c.quoteAmount)}</td><td style="text-align:right;">${x.probability}%</td><td style="text-align:right; font-weight:800; color:#2563EB;">${fmtYen(x.weighted)||"¥0"}</td></tr>`).join("")}</table></div>`:`<div class="dashboard-empty">この期に確度・受注予定日が揃った予測案件はありません。</div>`}
+      <div style="font-size:11px; color:#6B7280; margin-top:7px;">受注済・完了・失注は予測から除外し、受注実績へ二重計上しません。確度0%の案件は件数に含め、加重額を¥0として表示します。</div>
+    </div>`;
+  const missingNextActionCases=cases.filter(isMissingNextAction);
+  const missingActionCard=`<div class="card dashboard-panel-card" style="border-top:4px solid #F59E0B;"><div style="display:flex; align-items:center; gap:8px; margin-bottom:9px;"><div><h3 style="font-weight:800;">次回アクション未設定案件</h3><div style="font-size:11.5px; color:#6B7280;">内容または期日のどちらかが未設定の進行中案件</div></div><span class="chip" style="margin-left:auto; background:rgba(245,158,11,.09); border:1px solid rgba(245,158,11,.32); color:#F59E0B;">${missingNextActionCases.length}件</span></div>${missingNextActionCases.length?`<div style="overflow-x:auto;"><table class="grid" style="margin-bottom:0;"><tr><th>案件</th><th>顧客</th><th>担当</th><th>ステータス</th><th>不足項目</th><th></th></tr>${missingNextActionCases.map(c=>{ const lacks=!String(c.nextAction||"").trim()&&!c.nextActionDate?"内容・期日":!String(c.nextAction||"").trim()?"内容":"期日"; return `<tr><td style="font-weight:700;">${esc(c.name)}</td><td>${esc(c.customerName||"未設定")}</td><td>${esc(caseOwnerName(c)||"担当未設定")}</td><td>${esc(c.status||"未設定")}</td><td style="color:#F59E0B; font-weight:700;">${lacks}</td><td style="text-align:right;"><button class="btn btn-small btn-secondary" data-dashboard-missing-action="${c.id}">編集</button></td></tr>`; }).join("")}</table></div>`:`<div class="dashboard-empty">すべての進行中案件に次回アクションが設定されています。</div>`}</div>`;
+
   $("dashboardPanel").innerHTML=`
     <div class="card annual-sales-card">
       <div class="annual-sales-summary">
@@ -3562,6 +3821,8 @@ function renderDashboard(){
       </div>
     </div>
     ${fyPanel}
+    ${forecastCard}
+    ${missingActionCard}
     ${pipelineCard}
     <div class="dashboard-analysis-grid">
       ${barTable(`分類別 受注額(${fyLabel(dashFY)})`, byCat, `完了済の案件も含みます。件数の合計は上の「期別サマリー」の受注件数(${cur.orderCount}件)と一致します。`)}
@@ -3591,6 +3852,12 @@ function renderDashboard(){
       </table>`}
     </div>`;
   $("dashFYSelect").addEventListener("change", ()=>{ dashFY=+$("dashFYSelect").value; renderDashboard(); });
+  document.querySelectorAll("[data-forecast-case]").forEach(tr=>tr.addEventListener("click",()=>openCase(+tr.dataset.forecastCase)));
+  document.querySelectorAll("[data-dashboard-missing-action]").forEach(b=>b.addEventListener("click",()=>openCase(+b.dataset.dashboardMissingAction)));
+  $("btnForecastCases").addEventListener("click",()=>{
+    dashboardCaseFilter={label:`確度加重予測:${fyLabel(dashFY)}`,predicate:(c)=>isOpenCase(c)&&(parseFloat(c.orderAmount)||0)===0&&(parseFloat(c.quoteAmount)||0)>0&&fyOf(c.expectedOrderDate)===dashFY&&hasProbability(c)};
+    switchTab("cases");
+  });
   $("btnDashboardSalesSave").addEventListener("click", async ()=>{
     const previousMan=Number($("dashboardSalesActual").value);
     const targetMan=Number($("dashboardSalesTarget").value);
@@ -4408,28 +4675,73 @@ function renderMaster(){
 }
 async function renderCustomerList(){
   await loadCustomers();
-  $("customerList").innerHTML = customers.length===0
+  const visible=activeCustomers();
+  $("customerList").innerHTML = visible.length===0
     ? `<div style="color:#6B7280; font-size:12.5px;">まだ顧客が登録されていません。</div>`
-    : customers.map(c=>`
+    : visible.map(c=>`
       <div style="display:flex; align-items:center; gap:8px; border:1px solid #D1D5DB; border-radius:6px; padding:6px 10px; font-size:12.5px;">
         <span style="font-weight:700; min-width:120px;">${esc(c.name)}</span>
         <span style="color:#374151;">${esc(c.contact_person||"")}</span>
         <span style="color:#374151;">${esc(c.phone||"")}</span>
         <span style="color:#6B7280; flex:1;">${esc(c.note||"")}</span>
-        <button class="btn btn-small btn-secondary btn-danger" data-cust-del="${c.id}">削除</button>
+        <button class="btn btn-small btn-secondary btn-danger" data-cust-del="${c.id}">復元箱へ</button>
       </div>`).join("");
   document.querySelectorAll("[data-cust-del]").forEach(b=>b.addEventListener("click",async ()=>{
     const c=customers.find(x=>x.id==+b.dataset.custDel);
-    if(!confirm(`顧客「${c?c.name:""}」を削除しますか?\n(既存案件の顧客名は残ります)`)) return;
-    await sb.from("customers").delete().eq("id",+b.dataset.custDel);
-    await logAction("顧客削除", c?c.name:"");
+    if(!c) return;
+    const mergedSources=customers.filter(x=>String(x.merged_into||"")===String(c.id)&&!x.deleted_at);
+    if(mergedSources.length){ alert(`この顧客には統合元が${mergedSources.length}件あります。先に顧客タブから統合を取り消してください。`); return; }
+    if(!confirm(`顧客「${c.name}」を復元箱へ移動しますか?\n通常の顧客一覧と新規案件の候補から非表示になります。30日以内なら元に戻せます。`)) return;
+    const deletedAt=new Date().toISOString();
+    const {error}=await sb.from("customers").update({deleted_at:deletedAt,deleted_by:me,updated_at:deletedAt}).eq("id",c.id);
+    if(error){ alert("復元箱への移動に失敗しました。setup-crm3.sqlの実行状況を確認してください。"); return; }
+    await logAction("顧客を復元箱へ", c.name);
     await loadCustomers(); renderCustomerList();
+    setStatus("顧客を復元箱へ移動しました");
   }));
 }
 
 /* ---------- 設定 ---------- */
+function recycleBinHtml(){
+  const deletedCustomers=customers.filter(c=>!!c.deleted_at);
+  const total=deletedCases.length+deletedCustomers.length;
+  const dateLabel=(iso)=>{ if(!iso) return ""; const d=new Date(iso); return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
+  const row=(kind,item,deletedAt,deletedBy)=>{
+    const state=recycleState(deletedAt), isCase=kind==="case", mf=!isCase&&!!item.mf_partner_id;
+    return `<div style="display:flex; align-items:center; gap:9px; border:1px solid #D1D5DB; border-radius:7px; padding:8px 10px; flex-wrap:wrap;"><span class="chip" style="background:${isCase?"rgba(37,99,235,.08)":"rgba(212,175,55,.12)"}; border:1px solid ${isCase?"rgba(37,99,235,.28)":"rgba(212,175,55,.35)"}; color:${isCase?"#2563EB":"#0D1B2A"};">${isCase?"案件":"顧客"}</span><span style="font-weight:800; min-width:150px;">${esc(item.name)}</span>${isCase&&item.customerName?`<span style="font-size:11.5px; color:#374151;">${esc(item.customerName)}</span>`:""}${mf?`<span class="chip" style="background:rgba(22,163,74,.08); border:1px solid rgba(22,163,74,.28); color:#16A34A;">MF</span>`:""}<span style="font-size:11px; color:#6B7280; margin-left:auto;">${esc(deletedBy||"削除者不明")}・${dateLabel(deletedAt)}</span><span style="font-size:11.5px; font-weight:800; color:${state.restorable?"#F59E0B":"#EF4444"};">${state.label}</span>${state.restorable?`<button class="btn btn-small btn-primary" data-recycle-restore="${kind}|${item.id}">復元</button>`:mf?`<span style="font-size:11px; color:#6B7280;">MF再作成防止のため非表示状態を保持</span>`:`<button class="btn btn-small btn-secondary btn-danger" data-recycle-purge="${kind}|${item.id}">完全削除</button>`}</div>`;
+  };
+  const rows=[...deletedCases.map(c=>({kind:"case",item:c,at:c.deletedAt,by:c.deletedBy})),...deletedCustomers.map(c=>({kind:"customer",item:c,at:c.deleted_at,by:c.deleted_by}))].sort((a,b)=>String(b.at).localeCompare(String(a.at)));
+  return `<div class="card" style="border-top:4px solid #D4AF37;"><div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;"><div><h3 style="font-weight:800;">復元箱</h3><div style="font-size:11.5px; color:#6B7280;">削除した案件・顧客を30日間、関連情報ごと保管します。</div></div><span class="chip" style="margin-left:auto; background:#F3F4F6; border:1px solid #D1D5DB; color:#374151;">${total}件</span></div>${rows.length?`<div style="display:grid; gap:7px;">${rows.map(r=>row(r.kind,r.item,r.at,r.by)).join("")}</div>`:`<div class="dashboard-empty">復元箱は空です。</div>`}<div style="font-size:11px; color:#6B7280; margin-top:8px;">30日経過後も自動では完全削除しません。期限切れ案件は確認後に完全削除できます。MF連携顧客は同期による重複再作成を防ぐため、期限後も非表示行を保持します。</div></div>`;
+}
+async function restoreCustomer(id){
+  const c=customers.find(x=>String(x.id)===String(id)&&x.deleted_at); if(!c) return;
+  if(!recycleState(c.deleted_at).restorable){ alert("削除から30日が経過しているため復元できません。"); return; }
+  const {error}=await sb.from("customers").update({deleted_at:null,deleted_by:null,updated_at:new Date().toISOString()}).eq("id",c.id);
+  if(error){ alert("顧客を復元できませんでした。"); return; }
+  await logAction("顧客復元",c.name);
+  await loadCustomers(); renderSettings(); setStatus("顧客を復元しました");
+}
+async function purgeCustomer(id){
+  const c=customers.find(x=>String(x.id)===String(id)&&x.deleted_at); if(!c) return;
+  if(recycleState(c.deleted_at).restorable){ alert("30日間の復元期限中は完全削除できません。"); return; }
+  if(c.mf_partner_id){ alert("MF連携顧客は同期で重複再作成されるのを防ぐため、完全削除せず非表示状態を保持します。"); return; }
+  if(customers.some(x=>String(x.merged_into||"")===String(c.id))||customerMergeHistory.some(h=>!h.undone_at&&(String(h.source_customer_id)===String(c.id)||String(h.target_customer_id)===String(c.id)))){ alert("この顧客は有効な統合関係に含まれるため完全削除できません。先に統合を取り消してください。"); return; }
+  const answer=prompt(`顧客「${c.name}」を完全に削除します。元に戻せません。\n関連案件は顧客名を残したままマスターとの紐付けだけ解除します。\n続けるには顧客名を入力してください。`,"");
+  if(answer===null||answer.trim()!==String(c.name).trim()){ if(answer!==null) alert("顧客名が一致しませんでした。"); return; }
+  for(const x of [...cases,...deletedCases].filter(x=>String(x.customerId||"")===String(c.id))){ x.customerId=""; x.customerName=x.customerName||c.name; x.updatedAt=Date.now(); if(!await saveCaseRow(x)){ alert(`案件「${x.name}」の紐付け解除に失敗したため、完全削除を中止しました。`); return; } }
+  await sb.from("customer_activities").delete().eq("customer_id",c.id);
+  const {error}=await sb.from("customers").delete().eq("id",c.id);
+  if(error){ alert("顧客の完全削除に失敗しました。"); return; }
+  await logAction("顧客完全削除",c.name);
+  await Promise.all([loadCases(),loadCustomers()]); renderSettings(); setStatus("顧客を完全削除しました");
+}
+function bindRecycleBin(){
+  document.querySelectorAll("[data-recycle-restore]").forEach(b=>b.addEventListener("click",()=>{ const [kind,id]=b.dataset.recycleRestore.split("|"); kind==="case"?restoreCase(+id):restoreCustomer(+id); }));
+  document.querySelectorAll("[data-recycle-purge]").forEach(b=>b.addEventListener("click",()=>{ const [kind,id]=b.dataset.recyclePurge.split("|"); kind==="case"?purgeCase(+id):purgeCustomer(+id); }));
+}
 function renderSettings(){
   $("settingsPanel").innerHTML=`
+    ${recycleBinHtml()}
     <div class="card">
       <h3 style="font-weight:800; margin-bottom:8px;">Teams 日報取込設定(Graph API)</h3>
       <ol style="padding-left:20px; line-height:1.9; color:#374151; font-size:12.5px; margin-bottom:10px;">
@@ -4506,6 +4818,7 @@ function renderSettings(){
         <li>同時編集時は、自分の欄のみ編集してください</li>
       </ul>
     </div>`;
+  bindRecycleBin();
   $("googleClientId").addEventListener("change",()=>{ settings.googleClientId=$("googleClientId").value.trim(); queueSave("settings"); });
   $("teamsTenantId").addEventListener("change",()=>{ settings.teamsTenantId=$("teamsTenantId").value.trim(); msalApp=null; queueSave("settings"); });
   $("teamsClientId").addEventListener("change",()=>{ settings.teamsClientId=$("teamsClientId").value.trim(); msalApp=null; queueSave("settings"); });
