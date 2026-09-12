@@ -2722,28 +2722,46 @@ function renderCustMergeBanner(){
   if(!unlinked.length){ $("custMergeBanner").innerHTML=""; return; }
   const groups={};
   unlinked.forEach(c=>{ const k=c.customerName.trim(); (groups[k]=groups[k]||[]).push(c); });
-  const custOpts=(selectedId)=>activeCustomers().map(m=>`<option value="${m.id}" ${String(m.id)===String(selectedId)?"selected":""}>${esc(m.name)}</option>`).join("");
+  const mergeCustomers=activeCustomers();
+  const custOpts=(selectedId,list=mergeCustomers)=>list.map(m=>`<option value="${m.id}" ${String(m.id)===String(selectedId)?"selected":""}>${esc(m.name)}</option>`).join("");
+  const normCustSearch=v=>String(v||"").normalize("NFKC").toLowerCase().replace(/\s+/g,"");
   $("custMergeBanner").innerHTML=`
   <div class="alert alert-warning">
     <b>名寄せ:</b> 顧客マスタに紐付いていない案件が${unlinked.length}件あります。紐付けると顧客別の集計に正しく反映されます。
     <div style="display:grid; gap:8px; margin-top:8px;">
-      ${Object.entries(groups).map(([name,list])=>{
-        const suggest=activeCustomers().find(m=>mfNormName(m.name)===mfNormName(name));
+      ${Object.entries(groups).map(([name,list],index)=>{
+        const suggest=mergeCustomers.find(m=>mfNormName(m.name)===mfNormName(name));
         return `
         <div style="background:#FFFFFF; border:1px solid rgba(245,158,11,.32); border-radius:6px; padding:8px 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <span style="font-weight:700;">${esc(name)}</span>
           <span style="color:#374151; font-size:12px;">${list.length}件の案件</span>
-          <select data-merge-sel="${esc(name)}" style="margin-left:auto; min-width:180px;">
-            <option value="">紐付ける顧客を選択</option>${custOpts(suggest?suggest.id:"")}
-          </select>
-          <button class="btn btn-small btn-primary" data-merge-link="${esc(name)}">紐付ける</button>
+          <div style="margin-left:auto; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <input type="search" data-merge-search="${index}" placeholder="顧客名・かなで検索" aria-label="${esc(name)}の紐付け先顧客を検索" style="width:170px;">
+            <select data-merge-sel="${index}" style="min-width:180px;">
+              <option value="">紐付ける顧客を選択</option>${custOpts(suggest?suggest.id:"")}
+            </select>
+            <span data-merge-search-count="${index}" style="min-width:40px; color:#6B7280; font-size:11.5px;">${mergeCustomers.length}件</span>
+          </div>
+          <button class="btn btn-small btn-primary" data-merge-link="${esc(name)}" data-merge-index="${index}">紐付ける</button>
           <button class="btn btn-small btn-secondary" data-merge-new="${esc(name)}">新規顧客として登録</button>
         </div>`;}).join("")}
     </div>
   </div>`;
+  document.querySelectorAll("[data-merge-search]").forEach(input=>input.addEventListener("input",()=>{
+    const index=input.dataset.mergeSearch;
+    const sel=document.querySelector(`[data-merge-sel="${index}"]`);
+    const count=document.querySelector(`[data-merge-search-count="${index}"]`);
+    const query=normCustSearch(input.value);
+    const currentId=sel.value;
+    const filtered=mergeCustomers.filter(m=>!query || normCustSearch(`${m.name||""} ${m.name_kana||""}`).includes(query));
+    const keepSelected=filtered.some(m=>String(m.id)===String(currentId));
+    sel.innerHTML=`<option value="">${filtered.length?"紐付ける顧客を選択":"一致する顧客がありません"}</option>${custOpts(keepSelected?currentId:"",filtered)}`;
+    count.textContent=filtered.length?`${filtered.length}件`:"一致なし";
+    count.style.color=filtered.length?"#6B7280":"#EF4444";
+  }));
   document.querySelectorAll("[data-merge-link]").forEach(b=>b.addEventListener("click", async ()=>{
     const name=b.dataset.mergeLink;
-    const sel=document.querySelector(`[data-merge-sel="${CSS.escape(name)}"]`);
+    const sel=document.querySelector(`[data-merge-sel="${b.dataset.mergeIndex}"]`);
     const custId=sel.value;
     if(!custId){ alert("紐付ける顧客を選択してください。"); return; }
     const cust=customers.find(m=>String(m.id)===String(custId)); if(!cust) return;
