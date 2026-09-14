@@ -48,8 +48,8 @@ test('内部ソース・設定・社内文書を配信せず、既存の日次�
   for (const path of ['/lib/oneonone/teams.js','/dev/oneonone-stub.js','/tests/oneonone-release.test.js','/docs/oneonone-implementation.md','/setup-oneonone.sql','/.env.oneonone.local']) {
     assert(config.routes.some(r=>r.status===404 && r.dest==='/404.html' && new RegExp(`^(?:${r.src})$`).test(path)));
   }
-  assert.deepEqual(config.crons,[{path:'/api/mf/sync',schedule:'0 21 * * *'}]);
-  for (const path of ['/','/oneonone.js','/oneonone.css','/api/mf/status','/api/oneonone']) {
+  assert.deepEqual(config.crons,[{path:'/api/daily',schedule:'0 21 * * *'}]);
+  for (const path of ['/','/oneonone.js','/oneonone.css','/api/mf/status','/api/oneonone','/api/daily']) {
     assert(!config.routes.some(r=>r.status===404 && new RegExp(`^(?:${r.src})$`).test(path)));
   }
 });

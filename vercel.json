@@ -7,7 +7,7 @@
   ],
   "crons": [
     {
-      "path": "/api/mf/sync",
+      "path": "/api/daily",
       "schedule": "0 21 * * *"
     }
   ]
