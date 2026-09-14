@@ -1,0 +1,7 @@
+dev/
+tests/
+artifacts/
+docs/
+*.sql
+*.md
+.env*

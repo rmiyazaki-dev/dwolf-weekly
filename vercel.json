@@ -1,4 +1,10 @@
 {
+  "routes": [
+    { "src": "/(?:lib|dev|tests|docs|artifacts)(?:/.*)?", "status": 404 },
+    { "src": "/.*\\.(?:sql|md)$", "status": 404 },
+    { "src": "/\\.env(?:\\..*)?", "status": 404 },
+    { "handle": "filesystem" }
+  ],
   "crons": [
     {
       "path": "/api/mf/sync",

@@ -1,0 +1,6 @@
+.env.oneonone.local
+# 個人アカウント対応表・社内の導入記録は公開リポジトリに含めない。
+setup-oneonone.sql
+docs/oneonone-*.md
+dev/oneonone-*.js
+tests/oneonone/

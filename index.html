@@ -7,6 +7,9 @@
   <title>D-BORD 週次オペレーションボード</title>
   <link rel="icon" type="image/png" href="d-bord-favicon.png">
   <link rel="apple-touch-icon" href="d-bord-favicon.png">
+  <link rel="stylesheet" href="oneonone.css">
+  <script defer src="oneonone-domain.js"></script>
+  <script defer src="oneonone.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.4/lib/msal-browser.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -659,6 +662,7 @@
     <button class="tab-btn" data-tab="customers">顧客</button>
     <button class="tab-btn" data-tab="kanban">カンバン</button>
     <button class="tab-btn" data-tab="dashboard">ダッシュボード</button>
+    <button class="tab-btn" data-tab="oneonone" hidden>1on1</button>
     <button class="tab-btn" data-tab="feed">連絡事項<span class="badge" id="feedBadge" style="display:none;"></span></button>
     <button class="tab-btn" data-tab="nippo">日報</button>
     <button class="tab-btn" data-tab="meeting">会議モード</button>
@@ -799,6 +803,7 @@
     </div>
 
     <!-- 連絡事項 -->
+    <div class="section" data-section="oneonone"><div id="oneononeRoot"></div></div>
     <div class="section" data-section="feed">
       <div class="section-header"><span class="section-num">04</span><h2 class="section-title">連絡事項(全員向け掲示板)</h2></div>
       <div class="card">
@@ -1356,16 +1361,20 @@ async function enterApp(){
   refreshFeedBadge();
   refreshTodoBadge();
   startViewerLockObserver();
+  window.OneOnOne?.attach(sb);
   /* 6時以降の初回起動なら裏で自動取込。失敗しても通常操作は妨げない(閲覧専用は行わない) */
   if(!isViewer) maybeAutoImportCalendar().catch(e=>console.error("自動取込", e));
 }
 async function logout(){
+  try { await window.OneOnOne?.navigate('logout'); } catch(e) { window.OneOnOne?.show(e.message,'error'); return; }
+  window.OneOnOne?.clear();
   try{ await sb.auth.signOut(); }catch(e){ console.error(e); }
   location.reload();
 }
 
 /* ---------- タブ ---------- */
 async function switchTab(tab){
+  try { await window.OneOnOne?.navigate(tab); } catch(e) { window.OneOnOne?.show(e.message,'error'); return; }
   currentTab=tab;
   document.querySelectorAll(".tab-btn").forEach(b=>b.classList.toggle("active", b.dataset.tab===tab));
   document.querySelectorAll(".section").forEach(d=>d.classList.toggle("active", d.dataset.section===tab));
