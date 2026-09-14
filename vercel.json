@@ -1,8 +1,8 @@
 {
   "routes": [
-    { "src": "/(?:lib|dev|tests|docs|artifacts)(?:/.*)?", "status": 404 },
-    { "src": "/.*\\.(?:sql|md)$", "status": 404 },
-    { "src": "/\\.env(?:\\..*)?", "status": 404 },
+    { "src": "/(?:lib|dev|tests|docs|artifacts)(?:/.*)?", "status": 404, "dest": "/404.html" },
+    { "src": "/.*\\.(?:sql|md)$", "status": 404, "dest": "/404.html" },
+    { "src": "/\\.env(?:\\..*)?", "status": 404, "dest": "/404.html" },
     { "handle": "filesystem" }
   ],
   "crons": [
