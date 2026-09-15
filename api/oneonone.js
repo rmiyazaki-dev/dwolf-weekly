@@ -20,7 +20,7 @@ function handlerFactory(env = process.env, request = fetch) {
         if (JSON.stringify(req.body || {}).length > 60000) throw error(413, '入力が長すぎます。');
       }
       const token = String(req.headers.authorization || '').replace(/^Bearer /, '');
-      const store = createStore(env, request), service = createService(store, createIntegrations(env, request), env);
+      const store = createStore(env, request), service = createService(store, createIntegrations(env, request, store), env);
       if (action === 'dispatch' && same(token, env.ONEONONE_JOB_SECRET)) return res.status(200).json(await service.dispatch(null));
       if (action === 'tick' && same(token, env.ONEONONE_JOB_SECRET)) return res.status(200).json(await service.tick());
       const actor = await store.actor(token);

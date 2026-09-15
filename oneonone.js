@@ -97,7 +97,11 @@
     if(!manager() && state.alternateContact)root.querySelector('.oo-panel').insertAdjacentHTML('beforeend',`<section class="oo-section"><h3>別の窓口へ相談したいとき</h3>${text(state.alternateContact)}</section>`);
     if (busy) root.querySelectorAll('[data-oo]').forEach(b => b.disabled = true);
   }
-  function configurationText() { return `Teams個人チャット ${state.config.teams ? '設定あり' : '未設定'}<br>予定表 ${state.config.calendar ? '設定あり' : '未設定'}<br>AI ${state.config.ai ? '設定あり' : '未設定'}${state.config.teamsFlowUrl ? `<br><a href="${esc(state.config.teamsFlowUrl)}" target="_blank" rel="noopener noreferrer">Teams配信履歴を確認</a>` : ''}`; }
+  function configurationText() {
+    const calendar = state.config.calendar ? '接続済み' : '未接続';
+    const calendarButton = manager() ? `<div style="margin-top:8px">${button('calendar-connect', state.config.calendar ? '予定表を接続し直す' : '予定表を接続')}</div>` : '';
+    return `Teams個人チャット ${state.config.teams ? '設定あり' : '未設定'}<br>予定表 ${calendar}${calendarButton}<br>AI ${state.config.ai ? '設定あり' : '未設定'}${state.config.teamsFlowUrl ? `<br><a href="${esc(state.config.teamsFlowUrl)}" target="_blank" rel="noopener noreferrer">Teams配信履歴を確認</a>` : ''}`;
+  }
   function status(r) { if (r.shared?.publishedAt) return badge('合意共有済み', 'green'); if (r.meeting?.status === 'confirmed') return badge('日程確定', 'green'); if (r.submitted_version) return badge('提出済み', 'gold'); return badge('未提出'); }
   function jobs() { return `<div class="oo-jobs">${(detail.jobs || []).slice(0, 4).map(j => `<span class="oo-muted">${j.kind === 'teams' ? 'Teams個人チャット' : '予定表'}：${j.result?.accepted ? '受付済み・配信未確認' : stateNames[j.state] || j.state}${!j.result?.accepted && ['pending', 'unknown', 'failed', 'not_configured'].includes(j.state) ? button('retry', j.state === 'pending' ? '実行' : '再確認・再実行', false, `data-id="${j.id}"`) : ''}</span>`).join('')}</div>`; }
   function managerDetail() {
@@ -210,7 +214,7 @@ ${state.config.ai ? '提出内容の一部を、会社が承認したAIサービ
   async function onClick(e) {
     const b=e.target.closest('[data-oo]');if(!b||busy)return;
     const action=b.dataset.oo;
-    if(managerDirty && ['select','pane','refresh','next-cycle','generate','review_sheet','metrics','schedule','resuggest','retry','availability','consult','consult_done','cancel'].includes(action)){if(!await confirmAction('未保存の内容を破棄して画面を更新しますか？'))return;managerDirty=false;}
+    if(managerDirty && ['select','pane','refresh','next-cycle','generate','review_sheet','metrics','schedule','resuggest','retry','availability','consult','consult_done','cancel','calendar-connect'].includes(action)){if(!await confirmAction('未保存の内容を破棄して画面を更新しますか？'))return;managerDirty=false;}
     busy=true;b.disabled=true;show('');
     try{
       if(action==='select'){await load(b.dataset.id);}
@@ -223,6 +227,7 @@ ${state.config.ai ? '提出内容の一部を、会社が承認したAIサービ
       else if(action==='remove-row'){draft[b.dataset.key].splice(Number(b.dataset.index),1);dirty=true;render();await save();}
       else if(action==='submit'){D.sanitizeDraft(draft,true);if(!await confirmAction('この内容を提出します。提出後は宮﨑さんが回答を閲覧できます。よろしいですか？'))return;await save();await mutate('submit',{body:draft});editing=false;pane='prepare';render();show('提出しました。通知と日程の状態は個別に管理されます。','success');}
       else if(action==='consult'){if(!await confirmAction('「個別相談の依頼があります」と宮﨑さんへ通知します。下書きや相談理由は送信しません。よろしいですか？'))return;await save();await mutate('consult');show('相談依頼を受け付けました。','success');}
+      else if(action==='calendar-connect'){if(!await confirmAction('コプロスの宮﨑さんの予定表だけに接続します。Microsoftの認証画面で rmiyazaki@copros.co.jp を選んでください。'))return;const result=await api('calendar_connect',{});if(!result.url)throw new Error('予定表の接続先を準備できませんでした。');window.location.assign(result.url);return;}
       else if(['consult_done','resuggest','generate','review_sheet','metrics'].includes(action)){await mutate(action);}
       else if(action==='availability'){const result=await api('availability',{id:selected});root.querySelector('#ooAvailability').innerHTML=result.candidates.map(c=>`<p>${esc(slot(c.start))}：${c.available?'空きあり':'別の予定あり'}</p>`).join('');}
       else if(action==='schedule'||action==='cancel'){if(!await confirmAction(action==='cancel'?'コプロスの面談予定を取り消しますか？':`${slot(b.dataset.start)}でコプロスの予定表に登録しますか？`))return;const result=await mutate(action,{start:b.dataset.start,submissionId:detail.current.id});if(result.jobId){await api('dispatch',{id:result.jobId});await refresh();}}

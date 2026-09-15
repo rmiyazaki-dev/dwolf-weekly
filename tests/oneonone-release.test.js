@@ -4,6 +4,8 @@ const assert = require('node:assert/strict');
 const {handlerFactory} = require('../api/oneonone');
 const {teamsRouting, sendTeams, notification} = require('../lib/oneonone/teams');
 const {configuration, createIntegrations} = require('../lib/oneonone/integrations');
+const {calendarConfiguration, calendarAuthorizeUrl, createCalendarState, verifyCalendarState, encryptToken, decryptToken} = require('../lib/oneonone/calendar');
+const {handlerFactory: calendarCallback} = require('../api/oneonone-calendar-callback');
 const routingEnv = {
   ONEONONE_TEAMS_MANAGER: 'test-manager@shimizu-gumi.net',
   ONEONONE_TEAMS_RECIPIENTS: JSON.stringify(Object.fromEntries([1,2,3,4].map(i => [`test-staff${i}@shimizu-gumi.net`, `テスト社員${i}`])))
@@ -37,11 +39,42 @@ test('設定済み4名だけへ通知し、任意の氏名や宛先は採用し�
 });
 test('コプロスの対象メールボックス未設定・別会社なら予定表へ接続しない', async () => {
   for (const mailbox of [undefined,'test-manager@shimizu-gumi.net']) {
-    const env={ONEONONE_COPROS_MAILBOX:mailbox,ONEONONE_COPROS_TENANT_ID:'11111111-1111-4111-8111-111111111111',ONEONONE_COPROS_CLIENT_ID:'test',ONEONONE_COPROS_CLIENT_SECRET:'test',ONEONONE_COPROS_CALENDAR_ID:'test',ONEONONE_CALENDAR_SCOPE_APPROVED:'true'};
+    const env={ONEONONE_COPROS_MAILBOX:mailbox,ONEONONE_COPROS_TENANT_ID:'11111111-1111-4111-8111-111111111111',ONEONONE_COPROS_CLIENT_ID:'22222222-2222-4222-8222-222222222222',ONEONONE_COPROS_CLIENT_SECRET:'test',ONEONONE_CALENDAR_STATE_SECRET:'a'.repeat(32),ONEONONE_CALENDAR_TOKEN_KEY:Buffer.alloc(32,1).toString('base64url'),ONEONONE_APP_ORIGIN:'https://app.example.invalid',ONEONONE_CALENDAR_SCOPE_APPROVED:'true'};
     const api=createIntegrations(env,async()=>{throw new Error('must not connect');});
     assert.equal(api.config.calendar,false);
     await assert.rejects(()=>api.availability([]),{status:503});
   }
+});
+test('予定表は固定のコプロスアカウントだけを、期限付きの署名状態で認証する', () => {
+  const env={ONEONONE_COPROS_MAILBOX:'rmiyazaki@copros.co.jp',ONEONONE_COPROS_TENANT_ID:'11111111-1111-4111-8111-111111111111',ONEONONE_COPROS_CLIENT_ID:'22222222-2222-4222-8222-222222222222',ONEONONE_COPROS_CLIENT_SECRET:'test-secret',ONEONONE_CALENDAR_STATE_SECRET:'a'.repeat(32),ONEONONE_CALENDAR_TOKEN_KEY:Buffer.alloc(32,7).toString('base64url'),ONEONONE_APP_ORIGIN:'https://app.example.invalid',ONEONONE_CALENDAR_SCOPE_APPROVED:'true'};
+  const userId='33333333-3333-4333-8333-333333333333', now=Date.now();
+  assert.equal(calendarConfiguration(env).calendar,true);
+  const state=createCalendarState(env,userId,now);
+  assert.equal(verifyCalendarState(env,state,now+1000).userId,userId);
+  assert.throws(()=>verifyCalendarState(env,`${state}x`,now+1000),{status:400});
+  assert.throws(()=>verifyCalendarState(env,state,now+600001),{status:400});
+  const url=new URL(calendarAuthorizeUrl(env,userId));
+  assert.equal(url.hostname,'login.microsoftonline.com');
+  assert.match(url.searchParams.get('scope'),/Calendars\.ReadWrite/);
+  const cipher=encryptToken(env,'refresh-token-value');
+  assert.equal(decryptToken(env,cipher),'refresh-token-value');
+});
+test('予定表の認証完了時は管理者の状態だけを受け付け、更新トークンを暗号化して保存する', async () => {
+  const env={ONEONONE_COPROS_MAILBOX:'rmiyazaki@copros.co.jp',ONEONONE_COPROS_TENANT_ID:'11111111-1111-4111-8111-111111111111',ONEONONE_COPROS_CLIENT_ID:'22222222-2222-4222-8222-222222222222',ONEONONE_COPROS_CLIENT_SECRET:'test-secret',ONEONONE_CALENDAR_STATE_SECRET:'a'.repeat(32),ONEONONE_CALENDAR_TOKEN_KEY:Buffer.alloc(32,9).toString('base64url'),ONEONONE_APP_ORIGIN:'https://app.example.invalid',ONEONONE_CALENDAR_SCOPE_APPROVED:'true'};
+  const userId='33333333-3333-4333-8333-333333333333', state=createCalendarState(env,userId), calls=[];
+  const request=async url=>{
+    if(url.includes('/token')) return {ok:true,json:async()=>({access_token:'access-token',refresh_token:'refresh-token-value'})};
+    if(url.includes('graph.microsoft.com')) return {ok:true,json:async()=>({mail:'rmiyazaki@copros.co.jp'})};
+    throw new Error('unexpected request');
+  };
+  const storeFactory=()=>({get:async table=>table==='oneonone_members'?[{user_id:userId}]:[],call:async (...args)=>{calls.push(args);}});
+  const headers={}, res={setHeader(k,v){headers[k]=v;},writeHead(status,header){this.statusCode=status;this.location=header.Location;},end(){this.ended=true;},status(status){this.statusCode=status;return this;},send(value){this.body=value;}};
+  await calendarCallback(env,request,storeFactory)({method:'GET',query:{code:'authorization-code',state},headers:{}},res);
+  assert.equal(res.statusCode,302); assert.equal(res.location,'/?calendar=connected#oneonone'); assert.equal(res.ended,true);
+  assert.equal(headers['Cache-Control'],'no-store, private'); assert.equal(calls.length,1);
+  assert.equal(calls[0][0],'oneonone_calendar_tokens?on_conflict=id');
+  assert.notEqual(calls[0][2].token,'refresh-token-value');
+  assert.equal(decryptToken(env,calls[0][2].token),'refresh-token-value');
 });
 test('内部ソース・設定・社内文書を配信せず、既存の日次同期を維持する', () => {
   const config=require('../vercel.json');
