@@ -70,7 +70,7 @@ test('予定表の認証完了時は管理者の状態だけを受け付け、�
   const storeFactory=()=>({get:async table=>table==='oneonone_members'?[{user_id:userId}]:[],call:async (...args)=>{calls.push(args);}});
   const headers={}, res={setHeader(k,v){headers[k]=v;},writeHead(status,header){this.statusCode=status;this.location=header.Location;},end(){this.ended=true;},status(status){this.statusCode=status;return this;},send(value){this.body=value;}};
   await calendarCallback(env,request,storeFactory)({method:'GET',query:{code:'authorization-code',state},headers:{}},res);
-  assert.equal(res.statusCode,302); assert.equal(res.location,'/?calendar=connected#oneonone'); assert.equal(res.ended,true);
+  assert.equal(res.statusCode,302); assert.equal(headers.Location,'/?calendar=connected#oneonone'); assert.equal(res.ended,true);
   assert.equal(headers['Cache-Control'],'no-store, private'); assert.equal(calls.length,1);
   assert.equal(calls[0][0],'oneonone_calendar_tokens?on_conflict=id');
   assert.notEqual(calls[0][2].token,'refresh-token-value');

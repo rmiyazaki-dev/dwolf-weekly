@@ -28,7 +28,10 @@ function handlerFactory(env = process.env, request = fetch, storeFactory = creat
       await calendarIdentity(token.access_token, request);
       await saveCalendarToken(store, env, token.refresh_token);
 
-      res.writeHead(302, {Location: '/?calendar=connected#oneonone'});
+      // Vercel's response wrapper does not reliably support writeHead().
+      // Use the standard statusCode/header path after the token is safely stored.
+      res.statusCode = 302;
+      res.setHeader('Location', '/?calendar=connected#oneonone');
       return res.end();
     } catch (e) {
       // 認可コード、状態値、トークン、プロバイダー応答は画面やログに出さない。
