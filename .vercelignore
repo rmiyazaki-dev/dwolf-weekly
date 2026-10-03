@@ -2,6 +2,7 @@ dev/
 tests/
 artifacts/
 docs/
+.claude/
 *.sql
 *.md
 .env*

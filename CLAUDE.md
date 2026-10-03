@@ -13,3 +13,4 @@
 - 週データの書き込みは `updateWeekMine()` を通す(直接upsertすると他メンバーの編集を消す)
 - 案件の `archived`/`lost` は廃止済み。`isOpenCase()`/`isOrderedCase()` 等を使う
 - 権限判定は `app_metadata` で行う(`user_metadata` は本人が書き換えられる)
+- 人が読む日本語(画面の説明文・通知文・ドキュメント)は `yomiyasu` スキル(よみやす)で推敲する
