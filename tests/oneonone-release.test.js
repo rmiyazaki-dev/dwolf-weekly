@@ -78,7 +78,7 @@ test('予定表の認証完了時は管理者の状態だけを受け付け、�
 });
 test('内部ソース・設定・社内文書を配信せず、既存の日次同期を維持する', () => {
   const config=require('../vercel.json');
-  for (const path of ['/lib/oneonone/teams.js','/dev/oneonone-stub.js','/tests/oneonone-release.test.js','/docs/oneonone-implementation.md','/setup-oneonone.sql','/.env.oneonone.local']) {
+  for (const path of ['/lib/oneonone/teams.js','/dev/oneonone-stub.js','/tests/oneonone-release.test.js','/docs/oneonone-implementation.md','/setup-oneonone.sql','/.env.oneonone.local','/.claude/skills/yomiyasu/scripts/yomiyasu_lint.py','/.claude/skills/yomiyasu/LICENSE']) {
     assert(config.routes.some(r=>r.status===404 && r.dest==='/404.html' && new RegExp(`^(?:${r.src})$`).test(path)));
   }
   assert.deepEqual(config.crons,[{path:'/api/daily',schedule:'0 21 * * *'}]);

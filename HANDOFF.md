@@ -13,6 +13,7 @@
 7. [ハマりどころ集](#7-ハマりどころ集)
 8. [未対応・今後の検討事項](#8-未対応今後の検討事項)
 9. [ユーザーについて](#9-ユーザーについて)
+10. [エージェント用スキル(よみやす)](#10-エージェント用スキルよみやす)
 
 ---
 
@@ -366,3 +367,36 @@ anon keyだけではデータに触れない**(v3.12以降)。
 - 資料はWord/PowerPoint/Excel/PDF納品を好む(Noto Sans JPフォント推奨)
 - 実装の詳細を削らず、細かい手順を維持したまま資料化してほしいとの要望あり
 - 全メンバーへのローンチはCRM化フェーズ完成後の予定
+
+---
+
+## 10. エージェント用スキル(よみやす)
+
+AIが書いた日本語の不自然さを直す Agent Skill「yomiyasu(よみやす)」を、2026-10-03 に
+取り込んだ。使い方のルールは AGENTS.md の「7. 日本語の文章を書くとき」にある。
+
+- 取り込み元: https://github.com/nanaism/yomiyasu (作者: nanaism / 大賀 愛一郎さん、MIT License)
+- 版: v1.0.4(コミット `8d5abee`、2026-10-02)
+- 配置: `.claude/skills/yomiyasu/`。上流の `skills/yomiyasu/` から `SKILL.md`・`references/`・
+  `scripts/` を無改変でコピーし、ライセンス表記のためルートの `LICENSE` を添えた。
+  プラグイン設定(`.claude-plugin/`)とロゴ画像(`assets/`)はスキルの動作に使わないため入れていない
+- 同梱スクリプト(`yomiyasu_lint.py`・`yomiyasu_diff.py`)はPython標準ライブラリだけで動き、
+  通信もファイルの書き込みもしない(取り込み時に import 文とファイルの開き方を確認)。
+  エージェントが実行するものなので、更新したときも同じ点を確認する
+- 中身は直接編集しない。更新のたびに上書きされるため、運用の調整は AGENTS.md 側のルールで行う
+- 本番サイトには配信しない。`.vercelignore` で `.claude/` を除外し、`vercel.json` でも
+  `/.claude/...` を404にしている。`tests/oneonone-release.test.js` で確認できる
+- 他の日本語校正スキルと同時に有効にすると、指示どうしが干渉するおそれがある(作者の注意書きより)
+- 更新するときは、リポジトリ直下で次のコマンドを1行ずつ実行する
+  ```bash
+  rm -rf /tmp/yomiyasu
+  git clone --depth 1 https://github.com/nanaism/yomiyasu.git /tmp/yomiyasu
+  rm -rf .claude/skills/yomiyasu
+  mkdir -p .claude/skills/yomiyasu
+  cp -R /tmp/yomiyasu/skills/yomiyasu/SKILL.md /tmp/yomiyasu/skills/yomiyasu/references /tmp/yomiyasu/skills/yomiyasu/scripts .claude/skills/yomiyasu/
+  cp /tmp/yomiyasu/LICENSE .claude/skills/yomiyasu/
+  grep '"version"' /tmp/yomiyasu/.claude-plugin/plugin.json
+  git -C /tmp/yomiyasu log -1 --format='%h %cs'
+  git status --short
+  ```
+  最後の3行で版・コミット・変更ファイルを確かめ、上の「版」を書き換えてからコミットする
