@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>D-BORD 週次オペレーションボード</title>
-  <link rel="icon" type="image/png" href="d-bord-favicon.png">
-  <link rel="apple-touch-icon" href="d-bord-favicon.png">
+  <title>D-BOARD 週次オペレーションボード</title>
+  <link rel="icon" type="image/png" href="d-board-favicon.png?v=20261007">
+  <link rel="apple-touch-icon" href="d-board-favicon.png?v=20261007">
   <link rel="stylesheet" href="oneonone.css">
   <script defer src="oneonone-domain.js"></script>
   <script defer src="oneonone.js"></script>
@@ -104,7 +104,7 @@
     .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 70vh; text-align: center; }
     .login-box { max-width: 420px; width: 100%; }
 
-    /* D-BORD visual system: 承認済みデザイン案の共通ルールを全画面へ適用する */
+    /* D-BOARD visual system: 承認済みデザイン案の共通ルールを全画面へ適用する */
     :root {
       --db-primary: #0D1B2A;
       --db-secondary: #1B263B;
@@ -135,7 +135,11 @@
 
     header { min-height: 62px; background: linear-gradient(110deg, var(--db-primary), var(--db-secondary)); padding: 9px 22px; gap: 18px; border-bottom: 1px solid rgba(212,175,55,.25); box-shadow: 0 4px 18px rgba(13,27,42,.18); }
     header .logo { align-items: center; gap: 9px; min-width: max-content; }
-    .header-brand-logo { display: block; width: auto; height: 44px; max-width: 130px; object-fit: contain; border-radius: 7px; background: #FFFFFF; box-shadow: 0 3px 10px rgba(13,27,42,.18); }
+    .header-brand-lockup { height: 44px; display: flex; align-items: center; gap: 7px; padding: 4px 9px 4px 5px; border-radius: 7px; background: #FFFFFF; box-shadow: 0 3px 10px rgba(13,27,42,.18); }
+    .header-brand-mark { display: block; width: 36px; height: 36px; object-fit: contain; }
+    .header-brand-copy { display: grid; align-content: center; line-height: 1; }
+    .header-brand-name { color: #0D1B2A; font-family: Georgia,'Times New Roman',serif; font-size: 17px; font-weight: 900; letter-spacing: -.03em; white-space: nowrap; }
+    .header-brand-tagline { margin-top: 3px; color: #6B7280; font-size: 4.8px; font-weight: 800; letter-spacing: .05em; white-space: nowrap; }
     header .week-nav { gap: 4px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 4px 7px; }
     header .week-nav button { padding: 2px 6px; border-radius: 5px; transition: background .16s ease; }
     header .week-nav button:hover { background: rgba(255,255,255,.12); }
@@ -209,7 +213,17 @@
     .login-wrap::after { content: ''; position: absolute; inset: 0; z-index: -1; opacity: .28; background-image: linear-gradient(rgba(13,27,42,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(13,27,42,.045) 1px, transparent 1px); background-size: 32px 32px; mask-image: linear-gradient(to bottom, #111827, transparent 82%); }
     .login-box { max-width: 440px; background: rgba(255,255,255,.94); border: 1px solid rgba(212,175,55,.28); border-radius: 16px; padding: 32px 34px 28px; box-shadow: var(--db-shadow-lg); backdrop-filter: blur(10px); }
     .login-brand { display: grid; justify-items: center; margin-bottom: 20px; }
-    .login-brand-logo { display: block; width: min(100%, 220px); max-height: 330px; height: auto; object-fit: contain; }
+    .login-brand-lockup { width: min(100%, 310px); display: grid; justify-items: center; color: #0D1B2A; }
+    .login-brand-mark { display: block; width: 150px; height: 150px; object-fit: contain; }
+    .login-brand-name { margin-top: 2px; font-family: Georgia,'Times New Roman',serif; font-size: 43px; line-height: 1; font-weight: 900; letter-spacing: -.045em; white-space: nowrap; }
+    .login-brand-rule { width: 100%; height: 2px; margin: 12px 0 8px; background: #D4AF37; position: relative; }
+    .login-brand-rule::before, .login-brand-rule::after { content: ''; position: absolute; top: 50%; width: 8px; height: 8px; border-radius: 50%; background: #D4AF37; transform: translateY(-50%); }
+    .login-brand-rule::before { left: -1px; }
+    .login-brand-rule::after { right: -1px; }
+    .login-brand-system { display: flex; align-items: center; justify-content: center; gap: 9px; font-size: 9.5px; font-weight: 800; letter-spacing: .05em; white-space: nowrap; }
+    .login-brand-system strong { color: #D4AF37; font-size: 13px; letter-spacing: .02em; }
+    .login-brand-system span { padding-left: 9px; border-left: 1px solid #0D1B2A; }
+    .login-brand-slogan { margin-top: 13px; font-size: 14px; font-weight: 800; letter-spacing: .12em; }
     .login-subtitle { color: var(--db-gray-500); font-size: 11.5px; margin: -8px 0 20px; }
     #btnLogin { font-size: 13.5px; letter-spacing: .08em; }
 
@@ -243,7 +257,7 @@
     #kanbanBoard { gap: 12px !important; padding: 3px 3px 14px !important; }
     #printArea { box-shadow: var(--db-shadow-md); }
 
-    /* D-BORD application shell: 提案デザインの上部ヘッダー＋左ナビを全タブへ展開 */
+    /* D-BOARD application shell: 提案デザインの上部ヘッダー＋左ナビを全タブへ展開 */
     body.app-mode .container {
       display: grid;
       grid-template-columns: 220px minmax(0, 1fr);
@@ -280,7 +294,7 @@
       z-index: 35;
     }
     body.app-mode nav::before {
-      content: 'D-BORD MENU';
+      content: 'D-BOARD MENU';
       padding: 0 11px 9px;
       color: #6B7280;
       font-size: 9px;
@@ -613,6 +627,12 @@
       .section-title { font-size: 16px; }
       .modal-cols { grid-template-columns: 1fr; }
       .login-box { padding: 28px 22px 24px; }
+      .header-brand-tagline { display: none; }
+      .header-brand-name { font-size: 16px; }
+      .login-brand-mark { width: 132px; height: 132px; }
+      .login-brand-name { font-size: 37px; }
+      .login-brand-system { font-size: 8.5px; gap: 7px; }
+      .login-brand-system strong { font-size: 12px; }
       .dashboard-primary-grid, .dashboard-secondary-grid { grid-template-columns: 1fr 1fr; gap: 9px; }
       .annual-sales-content, .annual-sales-summary { padding: 17px 15px; }
       .annual-sales-metrics { grid-template-columns: 1fr; }
@@ -639,7 +659,10 @@
 <div class="container">
   <header id="appHeader" style="display:none;">
     <div class="logo">
-      <img class="header-brand-logo" src="d-bord-logo-header.png?v=20260831" alt="D-BORD — D-WOLF INFORMATION SHARING SYSTEM">
+      <div class="header-brand-lockup" role="img" aria-label="D-BOARD — D-WOLF INFORMATION SHARING SYSTEM">
+        <img class="header-brand-mark" src="d-board-mark.png?v=20261007" alt="">
+        <span class="header-brand-copy"><span class="header-brand-name">D-BOARD</span><span class="header-brand-tagline">D-WOLF INFORMATION SHARING SYSTEM</span></span>
+      </div>
     </div>
     <span id="viewerBadge" style="display:none; background:#F59E0B; color:#FFFFFF; font-size:11px; font-weight:800; padding:3px 9px; border-radius:12px; white-space:nowrap;">閲覧専用</span>
     <div class="week-nav">
@@ -681,7 +704,13 @@
     <div id="loginScreen" class="login-wrap">
       <div class="login-box">
         <div class="login-brand">
-          <img class="login-brand-logo" src="d-bord-logo-login.png?v=20260831" alt="D-BORD — D-WOLF INFORMATION SHARING SYSTEM">
+          <div class="login-brand-lockup" role="img" aria-label="D-BOARD — D-WOLF INFORMATION SHARING SYSTEM。つながる、見える、加速する。">
+            <img class="login-brand-mark" src="d-board-mark.png?v=20261007" alt="">
+            <div class="login-brand-name">D-BOARD</div>
+            <div class="login-brand-rule"></div>
+            <div class="login-brand-system"><strong>D-WOLF</strong><span>INFORMATION SHARING SYSTEM</span></div>
+            <div class="login-brand-slogan">つながる、見える、加速する。</div>
+          </div>
         </div>
         <div class="login-subtitle">社内アカウントでログイン</div>
         <input type="email" id="loginEmail" class="w100" placeholder="メールアドレス(例: iida@d-wolf.jp)" autocomplete="username" style="padding:11px;">

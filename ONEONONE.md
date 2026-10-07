@@ -1,6 +1,6 @@
-# D-BORD 1on1
+# D-BOARD 1on1
 
-隔月・30分の面談を、既存D-BORD内の独立メニューで扱う。
+隔月・30分の面談を、既存D-BOARD内の独立メニューで扱う。
 
 ## 公開と利用開始
 
@@ -15,7 +15,7 @@
 - `ONEONONE_TEAMS_WEBHOOK` / `ONEONONE_TEAMS_SECRET`: 通知フローの署名付きURLと追加の共有秘密値。
 - `ONEONONE_TEAMS_MODE`: 標準のTeamsカードフローは `workflows`。
 - `ONEONONE_TEAMS_FLOW_URL`: 担当者用の実行履歴URL。
-- `ONEONONE_APP_ORIGIN`: D-BORDの公開HTTPS origin。
+- `ONEONONE_APP_ORIGIN`: D-BOARDの公開HTTPS origin。
 - `ONEONONE_COPROS_MAILBOX`: 本人のコプロス予定表アカウント。Teams側へ代替しない。
 
 通知先未設定・不正なら送信しない。HTTP 202は受付済み・配信未確認とし、再送を拒否する。外部フローの実行履歴で確認する。回答・満足度・分析は通知に含めない。

@@ -1,4 +1,4 @@
-# HANDOFF — D-BORD 引き継ぎメモ
+# HANDOFF — D-BOARD 引き継ぎメモ
 
 作業ルールは [AGENTS.md](AGENTS.md)(Codex / Claude Code 共通)。こちらは**機能・仕様・
 過去の経緯**の記録。最終更新: v3.18 時点。
@@ -19,16 +19,16 @@
 
 ## 1. 概要
 
-清水組ドローン事業部(**D-WOLF**)向けの週次業務管理アプリ。**システム名は D-BORD**。
+清水組ドローン事業部(**D-WOLF**)向けの週次業務管理アプリ。**システム名は D-BOARD**。
 
-- D-WOLF = 事業ブランド名、D-BORD = このシステムの名前。ロゴ画像・社長報告書の見出し・
+- D-WOLF = 事業ブランド名、D-BOARD = このシステムの名前。ロゴ画像・社長報告書の見出し・
   Teams日報の書式(`【D-WOLF工事日誌_氏名】`)は事業ブランドなので **D-WOLF のまま**
 - フロント: 単一HTML(Vanilla JS)+ Supabase(DB/Storage)+ Vercel
 - バックエンド: MF連携のためだけに `api/mf/*.js`(Vercel Serverless Functions)がある
 
 ### デザインシステム(v3.17)
 
-システムロゴと画面デザインを D-BORD のブランドイメージへ統一。機能・データ構造は変更していない。
+システムロゴと画面デザインを D-BOARD のブランドイメージへ統一。機能・データ構造は変更していない。
 
 - Primary `#0D1B2A` / Secondary `#1B263B`: ヘッダー、ナビ、表見出し
 - Accent `#D4AF37`: ブランド強調、選択中タブ、主要導線

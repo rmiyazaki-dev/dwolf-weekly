@@ -1,4 +1,4 @@
--- D-BORD 1on1: コプロス予定表 OAuth 接続情報（サービスロール専用）
+-- D-BOARD 1on1: コプロス予定表 OAuth 接続情報（サービスロール専用）
 -- refresh token はアプリ側で AES-256-GCM 暗号化してから保存します。
 create table if not exists public.oneonone_calendar_tokens (
   id smallint primary key default 1 check (id = 1),
